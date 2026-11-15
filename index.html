@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessible Ludo — Screen-Reader & High-Contrast Web Game</title>
+  <meta name="description" content="Blind screen-reader accessible and WCAG AAA high-contrast web-based Ludo game with tactile audio cues, keyboard shortcuts, and full board explorer.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-dark">
+  <!-- Skip Navigation Link -->
+  <a href="#action-center" class="skip-link">Skip to Turn &amp; Action Center</a>
+
+  <!-- Dual ARIA Live Regions for Screen Readers -->
+  <div id="sr-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- Application Header Landmark -->
+  <header class="app-header" role="banner">
+    <div class="header-container">
+      <div class="title-group">
+        <h1 class="app-title"><span class="title-icon" aria-hidden="true">🎲</span> Accessible Ludo</h1>
+        <p class="app-subtitle">Engineered for Blind &amp; Screen-Reader Users (NVDA, JAWS, VoiceOver) and High Contrast Play</p>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" id="theme-toggle-btn" class="header-btn" aria-pressed="false" title="Switch Theme (Dark/Light)">
+          <span class="btn-icon" aria-hidden="true">🌓</span>
+          <span id="theme-btn-label">Theme: Dark</span>
+        </button>
+        <button type="button" id="open-setup-btn" class="header-btn" aria-haspopup="dialog" title="Game Settings &amp; Setup">
+          <span class="btn-icon" aria-hidden="true">⚙️</span>
+          <span>Game Setup</span>
+        </button>
+        <button type="button" id="open-help-btn" class="header-btn" aria-haspopup="dialog" title="Keyboard Shortcuts &amp; Rules (H or ?)">
+          <span class="btn-icon" aria-hidden="true">❓</span>
+          <span>Help <kbd>(H)</kbd></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Audio & Screen-Reader Inspector Toolbar -->
+    <nav class="inspector-toolbar" aria-label="Audio and Screen-Reader Inspector Shortcuts">
+      <div class="toolbar-title sr-only">Inspector Toolbar (Single-Key Shortcuts):</div>
+      <div class="toolbar-buttons" role="toolbar" aria-label="Quick inspector actions">
+        <button type="button" id="btn-status" class="toolbar-btn" title="Announce overall game status and turn (Key S)">
+          <span class="key-badge">S</span>
+          <span>Status</span>
+        </button>
+        <button type="button" id="btn-my-tokens" class="toolbar-btn" title="Announce my active tokens, steps, and threats (Key T)">
+          <span class="key-badge">T</span>
+          <span>My Tokens</span>
+        </button>
+        <button type="button" id="btn-opponents" class="toolbar-btn" title="Announce opponents token positions (Key O)">
+          <span class="key-badge">O</span>
+          <span>Opponents</span>
+        </button>
+        <button type="button" id="btn-recent-log" class="toolbar-btn" title="Read last 3 game log entries (Key L)">
+          <span class="key-badge">L</span>
+          <span>Recent Log</span>
+        </button>
+        <button type="button" id="btn-board-explorer" class="toolbar-btn" title="Jump focus to Board Explorer (Key B)">
+          <span class="key-badge">B</span>
+          <span>Explorer</span>
+        </button>
+        <button type="button" id="btn-mute" class="toolbar-btn" aria-pressed="false" title="Toggle sound effects mute (Key M)">
+          <span class="key-badge">M</span>
+          <span id="mute-label">Audio: On</span>
+        </button>
+        <button type="button" id="btn-tts" class="toolbar-btn" aria-pressed="false" title="Toggle self-voicing speech synthesis (Key V)">
+          <span class="key-badge">V</span>
+          <span id="tts-label">Voice: Off</span>
+        </button>
+        <button type="button" id="btn-restart-quick" class="toolbar-btn" title="Start a New Game">
+          <span class="key-badge">N</span>
+          <span>New Game</span>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main Landmark Layout -->
+  <main id="main-content" class="main-content" role="main">
+    <div class="game-layout-grid">
+
+      <!-- Left Column: Primary Turn & Action Center + Board Explorer -->
+      <div class="primary-column">
+
+        <!-- Turn & Action Center Landmark -->
+        <section id="action-center" class="action-card" aria-labelledby="action-heading" tabindex="-1">
+          <div class="action-card-header">
+            <h2 id="action-heading" class="section-heading">Turn &amp; Action Center</h2>
+            <div class="turn-badges">
+              <span id="player-badge" class="badge badge-player red">Red (Human)</span>
+              <span id="phase-badge" class="badge badge-phase">Roll Phase</span>
+              <span id="bonus-badge" class="badge badge-bonus hidden" aria-live="polite">Bonus Turn!</span>
+            </div>
+          </div>
+
+          <!-- Turn announcement display -->
+          <div class="turn-summary-box" aria-live="polite" aria-atomic="true">
+            <p id="turn-announcement" class="turn-announcement-text">
+              Welcome to Accessible Ludo! Red to play. Press <kbd>Space</kbd> or <kbd>R</kbd> or click the button below to roll the dice.
+            </p>
+          </div>
+
+          <!-- Dice & Primary Action Row -->
+          <div class="dice-action-row">
+            <div class="dice-display-container">
+              <div id="dice-visual" class="dice-face dice-empty" aria-hidden="true">
+                <span class="dice-pip pip-1"></span>
+                <span class="dice-pip pip-2"></span>
+                <span class="dice-pip pip-3"></span>
+                <span class="dice-pip pip-4"></span>
+                <span class="dice-pip pip-5"></span>
+                <span class="dice-pip pip-6"></span>
+                <span class="dice-pip pip-7"></span>
+                <span class="dice-pip pip-8"></span>
+                <span class="dice-pip pip-9"></span>
+              </div>
+              <div class="dice-info">
+                <span class="dice-info-label">Last Roll:</span>
+                <span id="dice-value-text" class="dice-value-text" aria-live="polite">—</span>
+              </div>
+            </div>
+
+            <div class="roll-btn-container">
+              <button type="button" id="roll-btn" class="primary-btn roll-btn" aria-describedby="roll-shortcut-desc">
+                <span class="btn-icon" aria-hidden="true">🎲</span>
+                <span class="btn-text">Roll Dice</span>
+                <span id="roll-shortcut-desc" class="shortcut-tag"><kbd>Space</kbd> or <kbd>R</kbd></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dynamic Available Moves List -->
+          <div class="moves-section" aria-labelledby="moves-heading">
+            <h3 id="moves-heading" class="sub-heading">
+              Available Moves <span id="moves-count" class="count-tag">(0)</span>
+            </h3>
+            <p id="moves-prompt" class="moves-prompt-text">
+              Roll the dice to see available moves. Once rolled, use number keys <kbd>1</kbd>–<kbd>4</kbd> or click below to move.
+            </p>
+            <div id="moves-list" class="moves-list" role="group" aria-labelledby="moves-heading">
+              <!-- Dynamically populated buttons -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Visual 15x15 Ludo Board Section -->
+        <section id="visual-board-section" class="board-card" aria-labelledby="board-heading">
+          <div class="card-header-row">
+            <h2 id="board-heading" class="section-heading">Visual Ludo Board (15×15)</h2>
+            <div class="board-legend">
+              <span class="legend-item"><span class="legend-swatch swatch-safe" aria-hidden="true">★</span> Safe Square</span>
+              <span class="legend-item"><span class="legend-swatch swatch-red" aria-hidden="true">●</span> Red (R)</span>
+              <span class="legend-item"><span class="legend-swatch swatch-green" aria-hidden="true">■</span> Green (G)</span>
+              <span class="legend-item"><span class="legend-swatch swatch-yellow" aria-hidden="true">◆</span> Yellow (Y)</span>
+              <span class="legend-item"><span class="legend-swatch swatch-blue" aria-hidden="true">▲</span> Blue (B)</span>
+            </div>
+          </div>
+          <!-- Visual grid rendered for sighted/low-vision players; hidden from screen readers who use the Board Explorer -->
+          <div class="board-container">
+            <div id="visual-board" class="ludo-grid" aria-hidden="true">
+              <!-- 225 grid cells generated via JS -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Accessible Board Explorer Landmark -->
+        <section id="explorer-section" class="explorer-card" aria-labelledby="explorer-heading">
+          <div class="card-header-row">
+            <div>
+              <h2 id="explorer-heading" class="section-heading">Accessible Board Explorer</h2>
+              <p class="explorer-help-text">
+                Keyboard-accessible structured board navigator. Use <kbd>Up</kbd> / <kbd>Down</kbd> arrows to jump between occupied squares, <kbd>Left</kbd> / <kbd>Right</kbd> to step sequentially along the 52-square track, or press <kbd>B</kbd> anytime to return focus here.
+              </p>
+            </div>
+            <div class="explorer-filter-group" role="group" aria-label="Board Explorer Filter">
+              <button type="button" id="filter-occupied-btn" class="filter-btn active" aria-pressed="true">
+                Occupied Squares Only
+              </button>
+              <button type="button" id="filter-all-btn" class="filter-btn" aria-pressed="false">
+                All Board Squares
+              </button>
+              <span id="explorer-count-badge" class="badge">0 squares</span>
+            </div>
+          </div>
+
+          <!-- Current Inspected Square Details Card -->
+          <div id="explorer-focus-card" class="explorer-focus-card" aria-live="polite" aria-atomic="true">
+            <div class="focus-card-header">
+              <span id="explorer-focus-label" class="focus-title">Select a square below to inspect</span>
+              <span id="explorer-focus-badge" class="badge">Board Explorer</span>
+            </div>
+            <p id="explorer-focus-tokens" class="focus-desc">Use arrow keys to navigate squares.</p>
+            <div id="explorer-focus-threats" class="focus-threats"></div>
+          </div>
+
+          <!-- Roving Tabindex Accessible Square List -->
+          <div id="explorer-list" class="explorer-list" role="listbox" aria-label="Ludo board squares list" tabindex="0">
+            <!-- Dynamically populated roving-tabindex options -->
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Right Column: Aside Landmark for Scoreboard & Activity Log -->
+      <aside id="game-sidebar" class="sidebar-column" aria-labelledby="sidebar-heading">
+        <h2 id="sidebar-heading" class="sr-only">Game Scoreboard and Log</h2>
+
+        <!-- Scoreboard Card -->
+        <section class="sidebar-card" aria-labelledby="scoreboard-heading">
+          <div class="card-header-row">
+            <h3 id="scoreboard-heading" class="sub-heading">Scoreboard &amp; Token Status</h3>
+            <span id="turn-counter-badge" class="badge">Turn 1</span>
+          </div>
+          <div id="scoreboard" class="scoreboard-container" role="region" aria-label="Player Tokens and Progress">
+            <!-- Dynamically populated player cards -->
+          </div>
+        </section>
+
+        <!-- Chronological Game Log Card -->
+        <section class="sidebar-card log-card" aria-labelledby="log-heading">
+          <div class="card-header-row">
+            <h3 id="log-heading" class="sub-heading">Chronological Game Log</h3>
+            <div class="log-actions">
+              <button type="button" id="speak-log-btn" class="small-btn" title="Read last 3 log entries (Key L)">
+                Read Recent <kbd>(L)</kbd>
+              </button>
+              <button type="button" id="clear-log-btn" class="small-btn secondary" title="Clear log entries">
+                Clear
+              </button>
+            </div>
+          </div>
+          <div id="game-log" class="game-log" role="log" aria-label="Game event history" aria-live="polite" tabindex="0">
+            <!-- Dynamically populated log entries -->
+          </div>
+        </section>
+
+        <!-- Screen Reader Shortcut Reference Card -->
+        <section class="sidebar-card shortcuts-card" aria-labelledby="shortcuts-card-heading">
+          <h3 id="shortcuts-card-heading" class="sub-heading">Quick Keyboard Shortcuts</h3>
+          <ul class="quick-shortcuts-list">
+            <li><kbd>Space</kbd> / <kbd>R</kbd> : Roll Dice</li>
+            <li><kbd>1</kbd>–<kbd>4</kbd> : Select Move for Token 1 to 4</li>
+            <li><kbd>Shift+1</kbd>–<kbd>4</kbd> : Inspect Token 1 to 4</li>
+            <li><kbd>S</kbd> : Game Status Summary</li>
+            <li><kbd>T</kbd> : My Tokens &amp; Threat Analysis</li>
+            <li><kbd>O</kbd> : Opponents Status</li>
+            <li><kbd>L</kbd> : Read Last 3 Log Entries</li>
+            <li><kbd>B</kbd> : Focus Board Explorer</li>
+            <li><kbd>M</kbd> : Toggle Audio Mute</li>
+            <li><kbd>V</kbd> : Toggle Self-Voicing Speech</li>
+            <li><kbd>H</kbd> / <kbd>?</kbd> : Open Help Dialog</li>
+          </ul>
+        </section>
+      </aside>
+
+    </div>
+  </main>
+
+  <!-- Application Footer Landmark -->
+  <footer class="app-footer" role="contentinfo">
+    <div class="footer-container">
+      <p>Accessible Ludo — Designed with WCAG AAA contrast, semantic ARIA landmarks, procedural Web Audio cues, and full screen-reader support.</p>
+    </div>
+  </footer>
+
+  <!-- Accessible Game Setup Dialog -->
+  <dialog id="setup-dialog" class="accessible-dialog" aria-labelledby="setup-dialog-title" aria-modal="true">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="setup-dialog-title" class="dialog-title">New Game Setup</h2>
+        <button type="button" id="close-setup-dialog-btn" class="dialog-close-btn" aria-label="Close setup dialog">&times;</button>
+      </div>
+
+      <form id="setup-form" class="setup-form">
+        <fieldset class="form-fieldset">
+          <legend class="fieldset-legend">Player Configurations</legend>
+          <p class="fieldset-hint">Select Human, AI, or Off for each colored player. At least 2 active players are required.</p>
+
+          <div class="player-config-grid">
+            <!-- Red -->
+            <div class="player-config-item config-red">
+              <label for="cfg-player-0" class="config-label">
+                <span class="color-dot red" aria-hidden="true"></span>
+                <strong>Red Player:</strong>
+              </label>
+              <select id="cfg-player-0" class="config-select" name="player0">
+                <option value="human" selected>Human (Keyboard/Screen Reader)</option>
+                <option value="ai">AI (Computer)</option>
+                <option value="none">Off (Inactive)</option>
+              </select>
+            </div>
+
+            <!-- Green -->
+            <div class="player-config-item config-green">
+              <label for="cfg-player-1" class="config-label">
+                <span class="color-dot green" aria-hidden="true"></span>
+                <strong>Green Player:</strong>
+              </label>
+              <select id="cfg-player-1" class="config-select" name="player1">
+                <option value="human">Human (Keyboard/Screen Reader)</option>
+                <option value="ai" selected>AI (Computer)</option>
+                <option value="none">Off (Inactive)</option>
+              </select>
+            </div>
+
+            <!-- Yellow -->
+            <div class="player-config-item config-yellow">
+              <label for="cfg-player-2" class="config-label">
+                <span class="color-dot yellow" aria-hidden="true"></span>
+                <strong>Yellow Player:</strong>
+              </label>
+              <select id="cfg-player-2" class="config-select" name="player2">
+                <option value="human">Human (Keyboard/Screen Reader)</option>
+                <option value="ai" selected>AI (Computer)</option>
+                <option value="none">Off (Inactive)</option>
+              </select>
+            </div>
+
+            <!-- Blue -->
+            <div class="player-config-item config-blue">
+              <label for="cfg-player-3" class="config-label">
+                <span class="color-dot blue" aria-hidden="true"></span>
+                <strong>Blue Player:</strong>
+              </label>
+              <select id="cfg-player-3" class="config-select" name="player3">
+                <option value="human">Human (Keyboard/Screen Reader)</option>
+                <option value="ai" selected>AI (Computer)</option>
+                <option value="none">Off (Inactive)</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-fieldset">
+          <legend class="fieldset-legend">Pacing &amp; Audio Accessibility</legend>
+
+          <div class="form-group">
+            <label for="cfg-ai-speed" class="config-label">
+              <strong>AI Turn Pacing:</strong>
+            </label>
+            <select id="cfg-ai-speed" class="config-select" name="aiSpeed">
+              <option value="slow" selected>Slow / Screen-Reader Paced (1500ms delay between AI actions)</option>
+              <option value="normal">Normal (900ms delay)</option>
+              <option value="fast">Fast (400ms delay)</option>
+            </select>
+            <p class="field-hint">Allows screen readers sufficient time to announce AI dice rolls and moves before the next action occurs.</p>
+          </div>
+
+          <div class="form-group-checkbox">
+            <input type="checkbox" id="cfg-self-voicing" name="selfVoicing">
+            <label for="cfg-self-voicing">Enable Self-Voicing Speech (speaks game events aloud using browser SpeechSynthesis)</label>
+          </div>
+        </fieldset>
+
+        <div class="dialog-actions">
+          <button type="submit" id="start-game-btn" class="primary-btn">Start Game</button>
+          <button type="button" id="cancel-setup-btn" class="secondary-btn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Accessible Help & Keyboard Shortcuts Dialog -->
+  <dialog id="help-dialog" class="accessible-dialog" aria-labelledby="help-dialog-title" aria-modal="true">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="help-dialog-title" class="dialog-title">Keyboard Shortcuts &amp; Ludo Rules</h2>
+        <button type="button" id="close-help-dialog-btn" class="dialog-close-btn" aria-label="Close help dialog">&times;</button>
+      </div>
+
+      <div class="dialog-body">
+        <section class="help-section" aria-labelledby="help-shortcuts-heading">
+          <h3 id="help-shortcuts-heading" class="sub-heading">Keyboard Shortcuts</h3>
+          <table class="shortcuts-table">
+            <thead>
+              <tr>
+                <th scope="col">Key</th>
+                <th scope="col">Action</th>
+                <th scope="col">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><kbd>Space</kbd> or <kbd>R</kbd></td>
+                <td>Roll Dice</td>
+                <td>Rolls the dice on your turn during the Roll phase.</td>
+              </tr>
+              <tr>
+                <td><kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, <kbd>4</kbd></td>
+                <td>Choose Move</td>
+                <td>Selects and executes the move for Token 1, 2, 3, or 4 during the Move phase.</td>
+              </tr>
+              <tr>
+                <td><kbd>Shift+1</kbd> .. <kbd>Shift+4</kbd></td>
+                <td>Inspect Token</td>
+                <td>Announces current position, steps to Home Goal, and nearby threats for that token.</td>
+              </tr>
+              <tr>
+                <td><kbd>S</kbd></td>
+                <td>Game Status</td>
+                <td>Announces current turn number, active player, phase, and overall standing.</td>
+              </tr>
+              <tr>
+                <td><kbd>T</kbd></td>
+                <td>My Tokens &amp; Threats</td>
+                <td>Detailed tactical status of all your tokens and immediate opponent capture threats.</td>
+              </tr>
+              <tr>
+                <td><kbd>O</kbd></td>
+                <td>Opponent Status</td>
+                <td>Summarizes all active opponents and the locations of their tokens.</td>
+              </tr>
+              <tr>
+                <td><kbd>L</kbd></td>
+                <td>Read Recent Log</td>
+                <td>Reads aloud the last 3 game events in the activity log.</td>
+              </tr>
+              <tr>
+                <td><kbd>B</kbd></td>
+                <td>Focus Board Explorer</td>
+                <td>Jumps focus directly into the Accessible Board Explorer list.</td>
+              </tr>
+              <tr>
+                <td><kbd>Up</kbd> / <kbd>Down</kbd></td>
+                <td>Explorer: Occupied</td>
+                <td>Navigates between occupied squares with pieces on them in the Board Explorer.</td>
+              </tr>
+              <tr>
+                <td><kbd>Left</kbd> / <kbd>Right</kbd></td>
+                <td>Explorer: Step</td>
+                <td>Steps one square forward or backward sequentially along the 52-square track.</td>
+              </tr>
+              <tr>
+                <td><kbd>M</kbd></td>
+                <td>Mute / Unmute Audio</td>
+                <td>Toggles procedural sound effects (dice rattle, movement steps, captures, chimes).</td>
+              </tr>
+              <tr>
+                <td><kbd>V</kbd></td>
+                <td>Self-Voicing Speech</td>
+                <td>Toggles Web Speech API self-voicing narration.</td>
+              </tr>
+              <tr>
+                <td><kbd>H</kbd> or <kbd>?</kbd></td>
+                <td>Help Dialog</td>
+                <td>Opens this help and rules modal dialog. Press <kbd>Escape</kbd> to close.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="help-section" aria-labelledby="help-rules-heading">
+          <h3 id="help-rules-heading" class="sub-heading">Rules of Ludo</h3>
+          <ul class="rules-list">
+            <li><strong>Starting Yard:</strong> All 4 tokens begin in your Yard. You must roll a <strong>6</strong> to exit a token from the Yard onto your colored start square on the main track.</li>
+            <li><strong>Bonus Rolls:</strong> You earn an extra roll whenever you:
+              <ol>
+                <li>Roll a <strong>6</strong> (Warning: rolling three 6s in a row forfeits your turn!).</li>
+                <li><strong>Capture</strong> an opponent's token.</li>
+                <li>Successfully bring a token into the <strong>Home Goal</strong>.</li>
+              </ol>
+            </li>
+            <li><strong>Capturing:</strong> Landing on a square occupied by an opponent token captures it, sending it all the way back to their Yard, and gives you a bonus roll!</li>
+            <li><strong>Safe Squares:</strong> Marked with a star (<span aria-hidden="true">★</span>) or located at each player's starting square. Multiple tokens of different colors can safely coexist on safe squares without capturing each other.</li>
+            <li><strong>Home Stretch &amp; Goal:</strong> After completing a full circuit of the 52-square track, your tokens turn into your 5-square colored Home Stretch. The central Home Goal (square 56) requires an <strong>exact roll</strong>. Overshooting is not allowed.</li>
+            <li><strong>Winning:</strong> The first player to bring all 4 tokens into the Home Goal wins the game!</li>
+          </ul>
+        </section>
+
+        <div class="dialog-actions">
+          <button type="button" id="close-help-btn" class="primary-btn">Close Help</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Script dependencies: Engine -> Audio -> App -->
+  <script src="engine.js"></script>
+  <script src="audio.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
