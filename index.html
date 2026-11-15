@@ -222,13 +222,13 @@
             </div>
           </div>
 
-          <!-- Live Board Cursor Status Bar -->
-          <div id="board-cursor-bar" class="board-cursor-bar" role="status">
+          <!-- Visual Board Cursor Status Bar -->
+          <div id="board-cursor-bar" class="board-cursor-bar">
             <span class="cursor-bar-title">Board Cursor:</span>
             <span id="board-cursor-text" class="cursor-bar-text">B7 — Track 1 (Red Start, Safe) — Occupied by: Red Token 1</span>
           </div>
 
-          <!-- Interactive visual grid with role="grid" tabindex="0" for direct 15x15 board arrow-key navigation -->
+          <!-- Interactive visual board with role="application" and roving tabindex on real squares -->
           <div class="board-container">
             <div class="board-frame">
               <div class="board-coord-corner" aria-hidden="true"></div>
@@ -242,7 +242,7 @@
                 <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
                 <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
               </div>
-              <div id="visual-board" class="ludo-grid" role="grid" aria-label="Interactive 15 by 15 Ludo Board. Use Arrow keys to navigate squares, Enter to inspect or move piece." tabindex="0">
+              <div id="visual-board" class="ludo-grid" role="application" aria-label="Interactive 15 by 15 Ludo Board. Use Arrow keys to navigate squares, Enter to inspect or move piece." tabindex="-1">
                 <!-- Authentic Ludo Board with 92 real squares generated via JS -->
               </div>
             </div>

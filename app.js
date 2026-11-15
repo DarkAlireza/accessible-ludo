@@ -294,20 +294,26 @@
     }
 
     if (announceMove) {
-      if (newActive && typeof newActive.focus === 'function') {
-        newActive.focus({ preventScroll: true });
-      }
-
       if (LudoAudio && typeof LudoAudio.playCursorMove === 'function') {
         LudoAudio.playCursorMove(cellInfo);
       }
 
+      let focusedCell = false;
+      if (newActive && typeof newActive.focus === 'function') {
+        newActive.focus({ preventScroll: true });
+        focusedCell = document.activeElement === newActive;
+      }
+
+      // Only use #sr-board-cursor fallback if DOM focus could not move onto the cell;
+      // otherwise NVDA reads the focused cell's aria-label once cleanly without repeating it.
       const cursorSr = document.getElementById('sr-board-cursor');
       if (cursorSr) {
         cursorSr.textContent = '';
-        requestAnimationFrame(function () {
-          cursorSr.textContent = cellInfo.speechSummary;
-        });
+        if (!focusedCell) {
+          requestAnimationFrame(function () {
+            cursorSr.textContent = cellInfo.speechSummary;
+          });
+        }
       }
 
       // Self-voicing narration if enabled
@@ -1274,6 +1280,11 @@
         handleExplorerArrowKey(code);
         return;
       }
+      if (code === 'Enter' || key === 'Enter') {
+        e.preventDefault();
+        selectExplorerIndex(config.explorerIndex, { focus: false, speakLive: true });
+        return;
+      }
     } else {
       // Direct 15x15 Board Arrow-Key Navigation on Real Squares Only
       if (code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight') {
@@ -1335,11 +1346,10 @@
   function focusBoardExplorer() {
     const list = document.getElementById('explorer-list');
     if (!list) return;
-    const items = list.querySelectorAll('.explorer-item');
+    const items = list.querySelectorAll('.explorer-item:not(.empty-state)');
     if (items.length > 0) {
       const idx = Math.min(config.explorerIndex, items.length - 1);
-      items[idx].focus();
-      announceExplorerItem(idx);
+      selectExplorerIndex(idx, { focus: true, speakLive: false });
     } else {
       list.focus();
       announce('Board Explorer list has no matching squares with current filter.', 'polite', false);
@@ -1354,6 +1364,8 @@
     const allItems = LudoEngine.getBoardExplorerItems(state);
     if (!allItems.length) return;
 
+    let filterChanged = false;
+
     if (code === 'ArrowRight' || code === 'ArrowLeft') {
       // Step sequentially along board squares
       if (config.filterOccupied) {
@@ -1364,6 +1376,7 @@
         if (fullIdx === -1) fullIdx = 0;
 
         config.filterOccupied = false;
+        filterChanged = true;
 
         const filterOccBtn = document.getElementById('filter-occupied-btn');
         const filterAllBtn = document.getElementById('filter-all-btn');
@@ -1420,12 +1433,10 @@
       config.explorerIndex = Math.max(0, currentList.length - 1);
     }
 
-    renderExplorer();
-    const domItems = document.querySelectorAll('.explorer-item');
-    if (domItems[config.explorerIndex]) {
-      domItems[config.explorerIndex].focus();
+    if (filterChanged) {
+      renderExplorer();
     }
-    announceExplorerItem(config.explorerIndex);
+    selectExplorerIndex(config.explorerIndex, { focus: true, speakLive: false });
   }
 
   /**
@@ -1439,13 +1450,10 @@
   }
 
   /**
-   * Screen reader announcement for the currently inspected square
+   * Builds accessible description for a Board Explorer item
    */
-  function announceExplorerItem(index) {
-    const items = getFilteredExplorerItems();
-    const item = items[index];
-    if (!item) return;
-
+  function buildExplorerItemDescription(item) {
+    if (!item) return '';
     let desc = `${item.label}. `;
     if (item.isSafe) desc += 'Safe square. ';
     if (item.tokens.length > 0) {
@@ -1455,8 +1463,7 @@
       desc += 'Empty square.';
     }
 
-    // Check threats if on track
-    if (item.type === 'track') {
+    if (item.type === 'track' && state) {
       const pIdx = state.players.findIndex(p => p.type === 'human') !== -1
         ? state.players.findIndex(p => p.type === 'human')
         : state.currentPlayer;
@@ -1465,8 +1472,44 @@
         desc += ` Threat alert: vulnerable to ${threats.join(', ')}.`;
       }
     }
+    return desc;
+  }
 
-    // Update Focus Card
+  /**
+   * Selects a Board Explorer item in place, updates focus card, and avoids double-speaking
+   * when DOM focus moves directly onto the role="option" element.
+   */
+  function selectExplorerIndex(index, options) {
+    const opts = options || {};
+    const items = getFilteredExplorerItems();
+    const item = items[index];
+    if (!item) return;
+
+    config.explorerIndex = index;
+    const desc = buildExplorerItemDescription(item);
+
+    // Update roving tabindex and aria-selected in place without destroying DOM nodes
+    const list = document.getElementById('explorer-list');
+    let focusedOpt = false;
+    if (list) {
+      const domItems = list.querySelectorAll('.explorer-item:not(.empty-state)');
+      domItems.forEach(function (el, idx) {
+        const isSel = idx === index;
+        el.tabIndex = isSel ? 0 : -1;
+        el.setAttribute('aria-selected', String(isSel));
+        el.classList.toggle('focused', isSel);
+      });
+      const targetEl = domItems[index];
+      if (targetEl) {
+        targetEl.setAttribute('aria-label', desc);
+        if (opts.focus && typeof targetEl.focus === 'function') {
+          targetEl.focus({ preventScroll: true });
+          focusedOpt = document.activeElement === targetEl;
+        }
+      }
+    }
+
+    // Update Focus Card visuals
     const titleEl = document.getElementById('explorer-focus-label');
     const badgeEl = document.getElementById('explorer-focus-badge');
     const tokensEl = document.getElementById('explorer-focus-tokens');
@@ -1488,7 +1531,18 @@
       }
     }
 
-    announce(desc, 'polite', false);
+    if (opts.speakLive || (opts.focus && !focusedOpt)) {
+      announce(desc, 'polite', false);
+    } else if (LudoAudio && typeof LudoAudio.speak === 'function' && LudoAudio.isSelfVoicing()) {
+      LudoAudio.speak(desc, false);
+    }
+  }
+
+  /**
+   * Screen reader announcement for the currently inspected square
+   */
+  function announceExplorerItem(index) {
+    selectExplorerIndex(index, { focus: false, speakLive: true });
   }
 
   /**
@@ -1784,6 +1838,31 @@
   }
 
   /**
+   * Attaches unified click behavior to any real board square element.
+   */
+  function bindBoardCellClick(cell, row, col) {
+    cell.addEventListener('click', function () {
+      const isSame = config.cursorRow === row && config.cursorCol === col;
+      let hasMovable = false;
+      if (state && state.phase === 'MOVE' && state.validMoves && state.validMoves.length > 0 && LudoEngine && typeof LudoEngine.getCellInfo === 'function') {
+        const cellInfo = LudoEngine.getCellInfo(state, row, col);
+        hasMovable = (cellInfo.tokens || []).some(function (t) {
+          return t.playerIndex === state.currentPlayer && state.validMoves.some(function (m) {
+            return m.tokenIndex === t.tokenIndex;
+          });
+        });
+      }
+
+      if (hasMovable || isSame) {
+        updateBoardCursor(row, col, false);
+        handleBoardCursorEnter();
+      } else {
+        updateBoardCursor(row, col, true);
+      }
+    });
+  }
+
+  /**
    * Initializes the Authentic Classic Ludo Board Grid DOM structure (once)
    * Zero non-existent squares: only the 92 real playable Ludo squares exist:
    * - 4 authentic 6x6 Corner Yard Containers with white inner box and 4 circular slots (16 cells)
@@ -1840,16 +1919,13 @@
         slotCell.dataset.col = String(coord.col);
         slotCell.dataset.yardPlayer = String(yard.playerIndex);
         slotCell.dataset.yardSlot = String(slotIdx);
-        slotCell.setAttribute('role', 'gridcell');
+        slotCell.setAttribute('role', 'button');
         slotCell.setAttribute('tabindex', '-1');
 
         const coordName = getSquareCoord(coord.row, coord.col);
         slotCell.innerHTML = `<span class="cell-coord" aria-hidden="true">${coordName}</span>`;
 
-        slotCell.addEventListener('click', function () {
-          updateBoardCursor(coord.row, coord.col, false);
-          handleBoardCursorEnter();
-        });
+        bindBoardCellClick(slotCell, coord.row, coord.col);
 
         innerWhite.appendChild(slotCell);
       });
@@ -1896,7 +1972,7 @@
       goalCell.dataset.goalPlayer = String(goal.playerIndex);
       goalCell.style.gridRow = String(goal.gridRow);
       goalCell.style.gridColumn = String(goal.gridCol);
-      goalCell.setAttribute('role', 'gridcell');
+      goalCell.setAttribute('role', 'button');
       goalCell.setAttribute('tabindex', '-1');
 
       const coordName = getSquareCoord(goalCoord.row, goalCoord.col);
@@ -1905,10 +1981,7 @@
         <span class="goal-icon" aria-hidden="true">🏆</span>
       `;
 
-      goalCell.addEventListener('click', function () {
-        updateBoardCursor(goalCoord.row, goalCoord.col, false);
-        handleBoardCursorEnter();
-      });
+      bindBoardCellClick(goalCell, goalCoord.row, goalCoord.col);
 
       centerHome.appendChild(goalCell);
     });
@@ -1929,7 +2002,7 @@
       cell.dataset.trackIndex = String(tIdx);
       cell.style.gridRow = String(coord.row + 1);
       cell.style.gridColumn = String(coord.col + 1);
-      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute('role', 'button');
       cell.setAttribute('tabindex', '-1');
 
       const coordName = getSquareCoord(coord.row, coord.col);
@@ -1965,10 +2038,7 @@
         ${markerHtml}
       `;
 
-      cell.addEventListener('click', function () {
-        updateBoardCursor(coord.row, coord.col, false);
-        handleBoardCursorEnter();
-      });
+      bindBoardCellClick(cell, coord.row, coord.col);
 
       grid.appendChild(cell);
     });
@@ -1988,7 +2058,7 @@
         cell.dataset.stretchIndex = String(sIdx + 1);
         cell.style.gridRow = String(coord.row + 1);
         cell.style.gridColumn = String(coord.col + 1);
-        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('role', 'button');
         cell.setAttribute('tabindex', '-1');
 
         const coordName = getSquareCoord(coord.row, coord.col);
@@ -1997,10 +2067,7 @@
           <span class="stretch-num-label" aria-hidden="true">${sIdx + 1}</span>
         `;
 
-        cell.addEventListener('click', function () {
-          updateBoardCursor(coord.row, coord.col, false);
-          handleBoardCursorEnter();
-        });
+        bindBoardCellClick(cell, coord.row, coord.col);
 
         grid.appendChild(cell);
       });
@@ -2063,16 +2130,16 @@
         const tok = tokens[0];
         const tokEl = document.createElement('div');
         tokEl.className = `token token-${tok.color.toLowerCase()}`;
-        tokEl.title = `${tok.color} Token ${tok.tokenIndex + 1}`;
+        tokEl.setAttribute('aria-hidden', 'true');
         tokEl.innerHTML = `<span>${tok.label}</span>`;
         cell.appendChild(tokEl);
       } else {
         const stackEl = document.createElement('div');
         stackEl.className = 'token-stack';
+        stackEl.setAttribute('aria-hidden', 'true');
         tokens.forEach(function (tok) {
           const tokEl = document.createElement('div');
           tokEl.className = `token token-${tok.color.toLowerCase()}`;
-          tokEl.title = `${tok.color} Token ${tok.tokenIndex + 1}`;
           tokEl.innerHTML = `<span>${tok.label}</span>`;
           stackEl.appendChild(tokEl);
         });
@@ -2123,10 +2190,12 @@
     }
 
     if (items.length === 0) {
+      list.setAttribute('tabindex', '0');
       list.innerHTML = '<div class="explorer-item empty-state">No matching squares for current filter.</div>';
       return;
     }
 
+    list.setAttribute('tabindex', '-1');
     if (config.explorerIndex >= items.length) {
       config.explorerIndex = 0;
     }
@@ -2134,15 +2203,16 @@
     items.forEach(function (item, idx) {
       const itemEl = document.createElement('div');
       itemEl.className = 'explorer-item';
-      itemEl.role = 'option';
+      itemEl.setAttribute('role', 'option');
       itemEl.id = `explorer-opt-${idx}`;
       itemEl.tabIndex = idx === config.explorerIndex ? 0 : -1;
       itemEl.setAttribute('aria-selected', String(idx === config.explorerIndex));
+      itemEl.setAttribute('aria-label', buildExplorerItemDescription(item));
       if (idx === config.explorerIndex) {
         itemEl.classList.add('focused');
       }
 
-      let safeIcon = item.isSafe ? '<span class="item-safe-icon" title="Safe square">★</span>' : '<span></span>';
+      let safeIcon = item.isSafe ? '<span class="item-safe-icon" aria-hidden="true">★</span>' : '<span aria-hidden="true"></span>';
       let tokensTags = '';
       if (item.tokens.length > 0) {
         tokensTags = item.tokens
@@ -2152,22 +2222,12 @@
 
       itemEl.innerHTML = `
         ${safeIcon}
-        <span class="item-label">${escapeHtml(item.label)}</span>
-        <div class="item-tokens-tags">${tokensTags}</div>
+        <span class="item-label" aria-hidden="true">${escapeHtml(item.label)}</span>
+        <div class="item-tokens-tags" aria-hidden="true">${tokensTags}</div>
       `;
 
       itemEl.addEventListener('click', function () {
-        config.explorerIndex = idx;
-        renderExplorer();
-        itemEl.focus();
-        announceExplorerItem(idx);
-      });
-
-      itemEl.addEventListener('keydown', function (e) {
-        if (e.code === 'Enter' || e.code === 'Space') {
-          e.preventDefault();
-          announceExplorerItem(idx);
-        }
+        selectExplorerIndex(idx, { focus: true, speakLive: false });
       });
 
       list.appendChild(itemEl);
