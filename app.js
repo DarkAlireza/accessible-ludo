@@ -83,10 +83,9 @@
             politeRegion.removeChild(politeRegion.firstChild);
           }
         }
-      }
-
-      // 2. For assertive feedback (immediate inspections, errors, or square navigation)
-      if (priority === 'assertive') {
+      } else if (priority === 'assertive' && !addToLog) {
+        // 2. Only write to #sr-assertive when priority === 'assertive' && !addToLog
+        // (on-demand inspector shortcuts S, T, O, L, Shift+1..4, or invalid-move error alerts)
         const assertiveRegion = document.getElementById('sr-assertive');
         if (assertiveRegion) {
           assertiveRegion.textContent = '';
@@ -311,7 +310,10 @@
         });
       }
 
-      announce(cellInfo.speechSummary, 'assertive', false);
+      // Self-voicing narration if enabled
+      if (LudoAudio && typeof LudoAudio.speak === 'function' && LudoAudio.isSelfVoicing()) {
+        LudoAudio.speak(cellInfo.speechSummary, true);
+      }
     }
   }
 
