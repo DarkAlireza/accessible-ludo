@@ -464,7 +464,7 @@ test('getCellInfo handles empty track squares correctly', () => {
   assert.deepStrictEqual(info.tokens, []);
   assert.deepStrictEqual(info.threats, []);
   assert.strictEqual(info.label, 'Track 4');
-  assert.strictEqual(info.speechSummary, 'Row 6, Column 4: Track 4. Empty.');
+  assert.strictEqual(info.speechSummary, 'Row 7, Column 5: Track 4. Empty.');
 });
 
 test('getCellInfo handles start track squares (safe) when occupied', () => {
@@ -484,7 +484,7 @@ test('getCellInfo handles start track squares (safe) when occupied', () => {
   assert.strictEqual(info.tokens[0].label, 'Red Token 1');
   assert.deepStrictEqual(info.threats, []); // Safe square has no threats
   assert.strictEqual(info.label, 'Track 1 (Red Start, Safe)');
-  assert.strictEqual(info.speechSummary, 'Row 6, Column 1: Track 1 (Red Start, Safe). Occupied by Red Token 1.');
+  assert.strictEqual(info.speechSummary, 'Row 7, Column 2: Track 1 (Red Start, Safe). Occupied by Red Token 1.');
 });
 
 test('getCellInfo handles safe star squares and token coexistence', () => {
@@ -524,7 +524,7 @@ test('getCellInfo reports active opponent threats on occupied unsafe track squar
   assert.strictEqual(info.threats[0], 'Green Token 1 (4 steps away)');
   assert.strictEqual(
     info.speechSummary,
-    'Row 0, Column 6: Track 11. Occupied by Red Token 1. Warning: Threatened by Green Token 1 (4 steps away).'
+    'Row 1, Column 7: Track 11. Occupied by Red Token 1. Warning: Threatened by Green Token 1 (4 steps away).'
   );
 });
 
@@ -541,7 +541,7 @@ test('getCellInfo handles occupied and empty yard nests', () => {
   assert.strictEqual(redNest1Occupied.tokens.length, 1);
   assert.strictEqual(redNest1Occupied.tokens[0].label, 'Red Token 1');
   assert.strictEqual(redNest1Occupied.label, 'Red Yard Nest 1');
-  assert.strictEqual(redNest1Occupied.speechSummary, 'Row 1, Column 1: Red Yard Nest 1. Occupied by Red Token 1.');
+  assert.strictEqual(redNest1Occupied.speechSummary, 'Row 2, Column 2: Red Yard Nest 1. Occupied by Red Token 1.');
 
   // Red Token 1 exits yard to track 0
   state.players[0].tokens[0] = 0;
@@ -549,7 +549,7 @@ test('getCellInfo handles occupied and empty yard nests', () => {
   assert.strictEqual(redNest1Empty.type, 'yardNest');
   assert.strictEqual(redNest1Empty.isOccupied, false);
   assert.strictEqual(redNest1Empty.tokens.length, 0);
-  assert.strictEqual(redNest1Empty.speechSummary, 'Row 1, Column 1: Red Yard Nest 1. Empty.');
+  assert.strictEqual(redNest1Empty.speechSummary, 'Row 2, Column 2: Red Yard Nest 1. Empty.');
 
   // Green Yard Nest 2 at row 1, col 13
   const greenNest2 = Ludo.getCellInfo(state, 1, 13);
@@ -569,7 +569,7 @@ test('getCellInfo handles yard border and yard area', () => {
   assert.strictEqual(border.label, 'Red Yard Border');
   assert.strictEqual(border.isSafe, false);
   assert.strictEqual(border.isOccupied, false);
-  assert.strictEqual(border.speechSummary, 'Row 0, Column 0: Red Yard Border. Empty.');
+  assert.strictEqual(border.speechSummary, 'Row 1, Column 1: Red Yard Border. Empty.');
 
   // Red Yard Area (inner non-nest) at row 2, col 2
   const innerArea = Ludo.getCellInfo(state, 2, 2);
@@ -590,7 +590,7 @@ test('getCellInfo handles home stretches', () => {
   assert.strictEqual(redStretch1.isSafe, true);
   assert.strictEqual(redStretch1.isOccupied, false);
   assert.strictEqual(redStretch1.label, 'Red Home Stretch 1');
-  assert.strictEqual(redStretch1.speechSummary, 'Row 7, Column 1: Red Home Stretch 1. Empty.');
+  assert.strictEqual(redStretch1.speechSummary, 'Row 8, Column 2: Red Home Stretch 1. Empty.');
 
   // Green Home Stretch 3 at row 3, col 7 occupied by Green Token 2 (step 53)
   state.players[1].tokens[1] = 53;
@@ -602,7 +602,7 @@ test('getCellInfo handles home stretches', () => {
   assert.strictEqual(greenStretch3.tokens[0].label, 'Green Token 2');
   assert.strictEqual(greenStretch3.tokens[0].step, 53);
   assert.strictEqual(greenStretch3.label, 'Green Home Stretch 3');
-  assert.strictEqual(greenStretch3.speechSummary, 'Row 3, Column 7: Green Home Stretch 3. Occupied by Green Token 2.');
+  assert.strictEqual(greenStretch3.speechSummary, 'Row 4, Column 8: Green Home Stretch 3. Occupied by Green Token 2.');
 });
 
 test('getCellInfo handles home goals', () => {
@@ -615,7 +615,7 @@ test('getCellInfo handles home goals', () => {
   assert.strictEqual(emptyGoal.isSafe, true);
   assert.strictEqual(emptyGoal.isOccupied, false);
   assert.strictEqual(emptyGoal.label, 'Red Home Goal');
-  assert.strictEqual(emptyGoal.speechSummary, 'Row 7, Column 6: Red Home Goal. Empty.');
+  assert.strictEqual(emptyGoal.speechSummary, 'Row 8, Column 7: Red Home Goal. Empty.');
 
   // Red Token 1 reaches Home Goal (step 56)
   state.players[0].tokens[0] = 56;
@@ -623,7 +623,7 @@ test('getCellInfo handles home goals', () => {
   assert.strictEqual(occupiedGoal.isOccupied, true);
   assert.strictEqual(occupiedGoal.tokens.length, 1);
   assert.strictEqual(occupiedGoal.tokens[0].label, 'Red Token 1');
-  assert.strictEqual(occupiedGoal.speechSummary, 'Row 7, Column 6: Red Home Goal. Occupied by Red Token 1.');
+  assert.strictEqual(occupiedGoal.speechSummary, 'Row 8, Column 7: Red Home Goal. Occupied by Red Token 1.');
 
   // Check other colors' Home Goals
   assert.strictEqual(Ludo.getCellInfo(state, 6, 7).label, 'Green Home Goal');

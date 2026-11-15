@@ -1372,7 +1372,7 @@
       }
     }
 
-    const speechSummary = `Row ${r}, Column ${c}: ${label}. ${occupancyText}`;
+    const speechSummary = `Row ${r + 1}, Column ${c + 1}: ${label}. ${occupancyText}`;
 
     return {
       row: r,

@@ -592,31 +592,27 @@
     if (!LudoMultiplayer || typeof LudoMultiplayer.init !== 'function') return;
 
     LudoMultiplayer.init({
-      onStateSync: function (payload) {
-        if (!payload) return;
-        if (payload.state) {
-          state = payload.state;
+      onStateSync: function (syncedState, msg) {
+        const envelope = msg || syncedState;
+        const nextState = (syncedState && syncedState.players) ? syncedState : (envelope && envelope.state ? envelope.state : null);
+        if (nextState) {
+          state = nextState;
         }
-        if (payload.roll && LudoAudio) {
-          LudoAudio.playDiceRoll(payload.roll);
+        if (envelope && envelope.roll && LudoAudio) {
+          LudoAudio.playDiceRoll(envelope.roll);
         }
-        if (payload.moveResult && LudoAudio) {
-          LudoAudio.playMove(payload.movingPlayer !== undefined ? payload.movingPlayer : state.currentPlayer, payload.moveResult);
+        if (envelope && envelope.moveResult && LudoAudio) {
+          LudoAudio.playMove(envelope.movingPlayer !== undefined && envelope.movingPlayer !== null ? envelope.movingPlayer : state.currentPlayer, envelope.moveResult);
         }
-        if (payload.message) {
-          announce(payload.message, 'assertive', true);
+        if (envelope && envelope.message) {
+          announce(envelope.message, 'assertive', true);
         }
         render();
         updateMultiplayerUI();
+        checkTurn();
       },
       onRemoteAction: function (action) {
         handleRemoteActionFromGuest(action);
-      },
-      onRemoteRoll: function (playerIndex) {
-        handleRemoteActionFromGuest({ type: 'REMOTE_ROLL', playerIndex: playerIndex });
-      },
-      onRemoteMove: function (playerIndex, tokenIndex) {
-        handleRemoteActionFromGuest({ type: 'REMOTE_MOVE', playerIndex: playerIndex, tokenIndex: tokenIndex });
       },
       onLobbyUpdate: function (playersList) {
         if (LudoMultiplayer.isHost() && state) {
