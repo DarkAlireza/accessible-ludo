@@ -593,6 +593,179 @@
     },
 
     /**
+     * Plays distinct earcon when navigating the 15x15 board with arrow keys:
+     * - Occupied squares (pieces present): Rich resonant musical bell / chord tone
+     *   using occupying player's signature pitch (with 45ms arpeggio if multi-token).
+     * - Empty squares: Short, soft hollow wooden/bamboo tap modulated by row and col,
+     *   with a subtle 880Hz shimmer on safe/homeGoal/homeStretch squares.
+     * @param {object} cellInfo (from LudoEngine.getCellInfo)
+     */
+    playCursorMove: function (cellInfo) {
+      const c = getContext();
+      if (!c || isMutedState) return;
+
+      const now = c.currentTime;
+
+      if (cellInfo && cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
+        // Occupied square: Play rich resonant bell tone / chord
+        cellInfo.tokens.forEach(function (token, idx) {
+          const t = now + idx * 0.045; // Rapid 45ms staggered arpeggio if multiple tokens
+          const pIdx = (Number(token.playerIndex) || 0) % 4;
+          const sig = PLAYER_SIGNATURES[pIdx] || PLAYER_SIGNATURES[0];
+          const baseFreq = sig.baseFreq;
+
+          // Main resonant bell tone (baseFreq * 1.5)
+          playTone({
+            freq: baseFreq * 1.5,
+            type: sig.wave || 'triangle',
+            startTime: t,
+            duration: 0.22,
+            gain: 0.25,
+            attack: 0.005,
+            decay: 0.215
+          });
+
+          // Harmonic bell shimmer (baseFreq * 3)
+          playTone({
+            freq: baseFreq * 3.0,
+            type: 'sine',
+            startTime: t,
+            duration: 0.18,
+            gain: 0.12,
+            attack: 0.005,
+            decay: 0.175
+          });
+        });
+      } else {
+        // Empty square: Short, soft hollow wooden/bamboo tap
+        const row = (cellInfo && typeof cellInfo.row === 'number') ? cellInfo.row : 7;
+        const col = (cellInfo && typeof cellInfo.col === 'number') ? cellInfo.col : 7;
+        const tapFreq = 180 + (row * 6) + (col * 4);
+
+        // Tactile wooden noise burst
+        playNoiseBurst(now, 0.012, 0.12, 1400);
+
+        // Brief low-mid triangle/sine tick around 180Hz + (row * 6) + (col * 4)
+        playTone({
+          freq: tapFreq,
+          type: 'triangle',
+          startTime: now,
+          duration: 0.04,
+          gain: 0.18,
+          attack: 0.002,
+          decay: 0.038
+        });
+
+        // Subtle high harmonic shimmer tick for empty safe/goal/stretch squares
+        if (cellInfo && (cellInfo.isSafe || cellInfo.type === 'homeGoal' || cellInfo.type === 'homeStretch')) {
+          playTone({
+            freq: 880,
+            type: 'sine',
+            startTime: now + 0.005,
+            duration: 0.08,
+            gain: 0.06,
+            attack: 0.005,
+            decay: 0.075
+          });
+        }
+      }
+    },
+
+    /**
+     * Plays audio cues for multiplayer events:
+     * - 'join': Welcoming ascending two-note chime (523.25Hz -> 659.25Hz)
+     * - 'leave': Gentle descending two-note chime (523.25Hz -> 392.00Hz)
+     * - 'linkCopied': Crisp high confirmation ping (783.99Hz -> 1046.50Hz)
+     * @param {'join' | 'leave' | 'linkCopied'} eventType
+     */
+    playMultiplayerEvent: function (eventType) {
+      const c = getContext();
+      if (!c || isMutedState) return;
+
+      const now = c.currentTime;
+
+      if (eventType === 'join') {
+        // Welcoming ascending two-note chime (523.25Hz -> 659.25Hz)
+        playTone({
+          freq: 523.25,
+          type: 'sine',
+          startTime: now,
+          duration: 0.12,
+          gain: 0.28,
+          attack: 0.01,
+          decay: 0.11
+        });
+        playTone({
+          freq: 659.25,
+          type: 'triangle',
+          startTime: now + 0.10,
+          duration: 0.25,
+          gain: 0.32,
+          attack: 0.01,
+          decay: 0.24
+        });
+        playTone({
+          freq: 659.25 * 2,
+          type: 'sine',
+          startTime: now + 0.10,
+          duration: 0.18,
+          gain: 0.1,
+          attack: 0.01,
+          decay: 0.17
+        });
+      } else if (eventType === 'leave') {
+        // Gentle descending two-note chime (523.25Hz -> 392.00Hz)
+        playTone({
+          freq: 523.25,
+          type: 'sine',
+          startTime: now,
+          duration: 0.12,
+          gain: 0.25,
+          attack: 0.01,
+          decay: 0.11
+        });
+        playTone({
+          freq: 392.00,
+          type: 'sine',
+          startTime: now + 0.10,
+          duration: 0.25,
+          gain: 0.28,
+          attack: 0.01,
+          decay: 0.24
+        });
+      } else if (eventType === 'linkCopied') {
+        // Crisp high confirmation ping (783.99Hz -> 1046.50Hz)
+        playTone({
+          freq: 783.99,
+          type: 'sine',
+          startTime: now,
+          duration: 0.08,
+          gain: 0.25,
+          attack: 0.005,
+          decay: 0.075
+        });
+        playTone({
+          freq: 1046.50,
+          type: 'triangle',
+          startTime: now + 0.07,
+          duration: 0.22,
+          gain: 0.30,
+          attack: 0.005,
+          decay: 0.215
+        });
+        playTone({
+          freq: 2093.00, // C7 overtone
+          type: 'sine',
+          startTime: now + 0.07,
+          duration: 0.14,
+          gain: 0.08,
+          attack: 0.005,
+          decay: 0.135
+        });
+      }
+    },
+
+    /**
      * Web Speech API self-voicing helpers.
      */
     setSelfVoicing: function (enabled) {

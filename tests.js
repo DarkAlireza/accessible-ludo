@@ -9,21 +9,10 @@ const Ludo = require('./engine.js');
 let totalTests = 0;
 let passedTests = 0;
 let failedTests = 0;
+const testQueue = [];
 
 function test(name, fn) {
-  totalTests++;
-  try {
-    fn();
-    passedTests++;
-    console.log(`  ✓ ${name}`);
-  } catch (err) {
-    failedTests++;
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${err.message}`);
-    if (err.stack) {
-      console.error(err.stack.split('\n').slice(1, 3).join('\n'));
-    }
-  }
+  testQueue.push({ name, fn });
 }
 
 console.log('====================================================');
@@ -454,10 +443,480 @@ test('getTokenCoords and getSquareCoords return valid 15x15 board coords', () =>
   assert.deepStrictEqual(sqCoords, { row: 6, col: 1 });
 });
 
-console.log('\n====================================================');
-console.log(`Test Results: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);
-console.log('====================================================');
+// 15. getCellInfo Grid Exploration & Accessibility Metadata (Phase 2)
+console.log('\n15. getCellInfo Grid Exploration & Accessibility Metadata:');
 
-if (failedTests > 0) {
-  process.exit(1);
-}
+test('Ludo.getCellInfo is exported as a function', () => {
+  assert.strictEqual(typeof Ludo.getCellInfo, 'function');
+});
+
+test('getCellInfo handles empty track squares correctly', () => {
+  const state = Ludo.createGame();
+  // Track 3 is at row 6, col 4
+  const info = Ludo.getCellInfo(state, 6, 4);
+  assert.strictEqual(info.row, 6);
+  assert.strictEqual(info.col, 4);
+  assert.strictEqual(info.type, 'track');
+  assert.strictEqual(info.trackIndex, 3);
+  assert.strictEqual(info.playerIndex, null);
+  assert.strictEqual(info.isSafe, false);
+  assert.strictEqual(info.isOccupied, false);
+  assert.deepStrictEqual(info.tokens, []);
+  assert.deepStrictEqual(info.threats, []);
+  assert.strictEqual(info.label, 'Track 4');
+  assert.strictEqual(info.speechSummary, 'Row 6, Column 4: Track 4. Empty.');
+});
+
+test('getCellInfo handles start track squares (safe) when occupied', () => {
+  const state = Ludo.createGame();
+  // Red Start is Track 0 at row 6, col 1
+  state.players[0].tokens[0] = 0; // Red Token 1 on Start square
+  const info = Ludo.getCellInfo(state, 6, 1);
+  assert.strictEqual(info.type, 'track');
+  assert.strictEqual(info.trackIndex, 0);
+  assert.strictEqual(info.playerIndex, 0);
+  assert.strictEqual(info.isSafe, true);
+  assert.strictEqual(info.isOccupied, true);
+  assert.strictEqual(info.tokens.length, 1);
+  assert.strictEqual(info.tokens[0].playerIndex, 0);
+  assert.strictEqual(info.tokens[0].tokenIndex, 0);
+  assert.strictEqual(info.tokens[0].color, 'Red');
+  assert.strictEqual(info.tokens[0].label, 'Red Token 1');
+  assert.deepStrictEqual(info.threats, []); // Safe square has no threats
+  assert.strictEqual(info.label, 'Track 1 (Red Start, Safe)');
+  assert.strictEqual(info.speechSummary, 'Row 6, Column 1: Track 1 (Red Start, Safe). Occupied by Red Token 1.');
+});
+
+test('getCellInfo handles safe star squares and token coexistence', () => {
+  const state = Ludo.createGame();
+  // Safe Star at Track 8: row 2, col 6
+  // Red step 8 is track 8; Green step (8 - 13 + 52) % 52 = 47 is track 8
+  state.players[0].tokens[0] = 8;
+  state.players[1].tokens[0] = 47;
+  const info = Ludo.getCellInfo(state, 2, 6);
+  assert.strictEqual(info.type, 'track');
+  assert.strictEqual(info.trackIndex, 8);
+  assert.strictEqual(info.playerIndex, null);
+  assert.strictEqual(info.isSafe, true);
+  assert.strictEqual(info.isOccupied, true);
+  assert.strictEqual(info.tokens.length, 2);
+  assert.deepStrictEqual(info.threats, []); // Safe square
+  assert.strictEqual(info.label, 'Track 9 (Safe Star)');
+  assert(info.speechSummary.includes('Occupied by Red Token 1, Green Token 1.'));
+});
+
+test('getCellInfo reports active opponent threats on occupied unsafe track squares', () => {
+  const state = Ludo.createGame();
+  // Track 10 is at row 0, col 6 (Unsafe)
+  // Red Token 1 at track 10
+  state.players[0].tokens[0] = 10;
+  // Green Token 1 at track 6 (distance 4 from Track 10)
+  // Green step: (6 - 13 + 52) % 52 = 45
+  state.players[1].tokens[0] = 45;
+
+  const info = Ludo.getCellInfo(state, 0, 6);
+  assert.strictEqual(info.type, 'track');
+  assert.strictEqual(info.trackIndex, 10);
+  assert.strictEqual(info.isSafe, false);
+  assert.strictEqual(info.isOccupied, true);
+  assert.strictEqual(info.tokens.length, 1);
+  assert.strictEqual(info.threats.length, 1);
+  assert.strictEqual(info.threats[0], 'Green Token 1 (4 steps away)');
+  assert.strictEqual(
+    info.speechSummary,
+    'Row 0, Column 6: Track 11. Occupied by Red Token 1. Warning: Threatened by Green Token 1 (4 steps away).'
+  );
+});
+
+test('getCellInfo handles occupied and empty yard nests', () => {
+  const state = Ludo.createGame();
+  // Initial state: all tokens in yard
+  // Red Yard Nest 1 at row 1, col 1
+  const redNest1Occupied = Ludo.getCellInfo(state, 1, 1);
+  assert.strictEqual(redNest1Occupied.type, 'yardNest');
+  assert.strictEqual(redNest1Occupied.playerIndex, 0);
+  assert.strictEqual(redNest1Occupied.trackIndex, null);
+  assert.strictEqual(redNest1Occupied.isSafe, true);
+  assert.strictEqual(redNest1Occupied.isOccupied, true);
+  assert.strictEqual(redNest1Occupied.tokens.length, 1);
+  assert.strictEqual(redNest1Occupied.tokens[0].label, 'Red Token 1');
+  assert.strictEqual(redNest1Occupied.label, 'Red Yard Nest 1');
+  assert.strictEqual(redNest1Occupied.speechSummary, 'Row 1, Column 1: Red Yard Nest 1. Occupied by Red Token 1.');
+
+  // Red Token 1 exits yard to track 0
+  state.players[0].tokens[0] = 0;
+  const redNest1Empty = Ludo.getCellInfo(state, 1, 1);
+  assert.strictEqual(redNest1Empty.type, 'yardNest');
+  assert.strictEqual(redNest1Empty.isOccupied, false);
+  assert.strictEqual(redNest1Empty.tokens.length, 0);
+  assert.strictEqual(redNest1Empty.speechSummary, 'Row 1, Column 1: Red Yard Nest 1. Empty.');
+
+  // Green Yard Nest 2 at row 1, col 13
+  const greenNest2 = Ludo.getCellInfo(state, 1, 13);
+  assert.strictEqual(greenNest2.type, 'yardNest');
+  assert.strictEqual(greenNest2.playerIndex, 1);
+  assert.strictEqual(greenNest2.label, 'Green Yard Nest 2');
+  assert.strictEqual(greenNest2.isOccupied, true);
+  assert.strictEqual(greenNest2.tokens[0].label, 'Green Token 2');
+});
+
+test('getCellInfo handles yard border and yard area', () => {
+  const state = Ludo.createGame();
+  // Red Yard Border at row 0, col 0
+  const border = Ludo.getCellInfo(state, 0, 0);
+  assert.strictEqual(border.type, 'yardArea');
+  assert.strictEqual(border.playerIndex, 0);
+  assert.strictEqual(border.label, 'Red Yard Border');
+  assert.strictEqual(border.isSafe, false);
+  assert.strictEqual(border.isOccupied, false);
+  assert.strictEqual(border.speechSummary, 'Row 0, Column 0: Red Yard Border. Empty.');
+
+  // Red Yard Area (inner non-nest) at row 2, col 2
+  const innerArea = Ludo.getCellInfo(state, 2, 2);
+  assert.strictEqual(innerArea.type, 'yardArea');
+  assert.strictEqual(innerArea.playerIndex, 0);
+  assert.strictEqual(innerArea.label, 'Red Yard Area');
+  assert.strictEqual(innerArea.isSafe, false);
+  assert.strictEqual(innerArea.isOccupied, false);
+});
+
+test('getCellInfo handles home stretches', () => {
+  const state = Ludo.createGame();
+  // Red Home Stretch 1 at row 7, col 1
+  const redStretch1 = Ludo.getCellInfo(state, 7, 1);
+  assert.strictEqual(redStretch1.type, 'homeStretch');
+  assert.strictEqual(redStretch1.playerIndex, 0);
+  assert.strictEqual(redStretch1.trackIndex, null);
+  assert.strictEqual(redStretch1.isSafe, true);
+  assert.strictEqual(redStretch1.isOccupied, false);
+  assert.strictEqual(redStretch1.label, 'Red Home Stretch 1');
+  assert.strictEqual(redStretch1.speechSummary, 'Row 7, Column 1: Red Home Stretch 1. Empty.');
+
+  // Green Home Stretch 3 at row 3, col 7 occupied by Green Token 2 (step 53)
+  state.players[1].tokens[1] = 53;
+  const greenStretch3 = Ludo.getCellInfo(state, 3, 7);
+  assert.strictEqual(greenStretch3.type, 'homeStretch');
+  assert.strictEqual(greenStretch3.playerIndex, 1);
+  assert.strictEqual(greenStretch3.isSafe, true);
+  assert.strictEqual(greenStretch3.isOccupied, true);
+  assert.strictEqual(greenStretch3.tokens[0].label, 'Green Token 2');
+  assert.strictEqual(greenStretch3.tokens[0].step, 53);
+  assert.strictEqual(greenStretch3.label, 'Green Home Stretch 3');
+  assert.strictEqual(greenStretch3.speechSummary, 'Row 3, Column 7: Green Home Stretch 3. Occupied by Green Token 2.');
+});
+
+test('getCellInfo handles home goals', () => {
+  const state = Ludo.createGame();
+  // Red Home Goal at row 7, col 6
+  const emptyGoal = Ludo.getCellInfo(state, 7, 6);
+  assert.strictEqual(emptyGoal.type, 'homeGoal');
+  assert.strictEqual(emptyGoal.playerIndex, 0);
+  assert.strictEqual(emptyGoal.trackIndex, null);
+  assert.strictEqual(emptyGoal.isSafe, true);
+  assert.strictEqual(emptyGoal.isOccupied, false);
+  assert.strictEqual(emptyGoal.label, 'Red Home Goal');
+  assert.strictEqual(emptyGoal.speechSummary, 'Row 7, Column 6: Red Home Goal. Empty.');
+
+  // Red Token 1 reaches Home Goal (step 56)
+  state.players[0].tokens[0] = 56;
+  const occupiedGoal = Ludo.getCellInfo(state, 7, 6);
+  assert.strictEqual(occupiedGoal.isOccupied, true);
+  assert.strictEqual(occupiedGoal.tokens.length, 1);
+  assert.strictEqual(occupiedGoal.tokens[0].label, 'Red Token 1');
+  assert.strictEqual(occupiedGoal.speechSummary, 'Row 7, Column 6: Red Home Goal. Occupied by Red Token 1.');
+
+  // Check other colors' Home Goals
+  assert.strictEqual(Ludo.getCellInfo(state, 6, 7).label, 'Green Home Goal');
+  assert.strictEqual(Ludo.getCellInfo(state, 7, 8).label, 'Yellow Home Goal');
+  assert.strictEqual(Ludo.getCellInfo(state, 8, 7).label, 'Blue Home Goal');
+});
+
+test('getCellInfo handles center area and board center', () => {
+  const state = Ludo.createGame();
+  // Board Center at row 7, col 7
+  const center = Ludo.getCellInfo(state, 7, 7);
+  assert.strictEqual(center.type, 'centerArea');
+  assert.strictEqual(center.label, 'Board Center');
+  assert.strictEqual(center.playerIndex, null);
+  assert.strictEqual(center.trackIndex, null);
+  assert.strictEqual(center.isSafe, false);
+  assert.strictEqual(center.isOccupied, false);
+
+  // Center corner at row 6, col 6
+  const corner = Ludo.getCellInfo(state, 6, 6);
+  assert.strictEqual(corner.type, 'centerArea');
+  assert.strictEqual(corner.label, 'Center Area');
+});
+
+test('getCellInfo handles out-of-bounds coordinates gracefully', () => {
+  const state = Ludo.createGame();
+  const oob1 = Ludo.getCellInfo(state, -1, 5);
+  assert.strictEqual(oob1.label, 'Out of bounds');
+  assert.strictEqual(oob1.isOccupied, false);
+
+  const oob2 = Ludo.getCellInfo(state, 15, 15);
+  assert.strictEqual(oob2.label, 'Out of bounds');
+});
+
+test('getCellInfo comprehensively partitions all 225 cells on the 15x15 board', () => {
+  const state = Ludo.createGame();
+  let trackCount = 0;
+  let homeStretchCount = 0;
+  let homeGoalCount = 0;
+  let yardNestCount = 0;
+  let yardAreaCount = 0;
+  let centerAreaCount = 0;
+
+  for (let r = 0; r < 15; r++) {
+    for (let c = 0; c < 15; c++) {
+      const info = Ludo.getCellInfo(state, r, c);
+      assert.strictEqual(info.row, r);
+      assert.strictEqual(info.col, c);
+      assert(typeof info.type === 'string');
+      assert(typeof info.label === 'string');
+      assert(typeof info.isSafe === 'boolean');
+      assert(typeof info.isOccupied === 'boolean');
+      assert(Array.isArray(info.tokens));
+      assert(Array.isArray(info.threats));
+      assert(typeof info.speechSummary === 'string');
+
+      if (info.type === 'track') trackCount++;
+      else if (info.type === 'homeStretch') homeStretchCount++;
+      else if (info.type === 'homeGoal') homeGoalCount++;
+      else if (info.type === 'yardNest') yardNestCount++;
+      else if (info.type === 'yardArea') yardAreaCount++;
+      else if (info.type === 'centerArea') centerAreaCount++;
+    }
+  }
+
+  assert.strictEqual(trackCount, 52, 'Exactly 52 main track cells');
+  assert.strictEqual(homeStretchCount, 20, 'Exactly 20 home stretch cells (4 colors x 5 steps)');
+  assert.strictEqual(homeGoalCount, 4, 'Exactly 4 home goal cells');
+  assert.strictEqual(yardNestCount, 16, 'Exactly 16 yard nests (4 colors x 4 tokens)');
+  assert.strictEqual(yardAreaCount, 128, 'Exactly 128 non-nest yard area cells (4 yards x 32 cells)');
+  assert.strictEqual(centerAreaCount, 5, 'Exactly 5 center non-goal cells');
+  assert.strictEqual(
+    trackCount + homeStretchCount + homeGoalCount + yardNestCount + yardAreaCount + centerAreaCount,
+    225,
+    'All 225 cells accounted for'
+  );
+});
+
+// 16. Audio & Multiplayer Integration Tests
+console.log('\n16. Audio & Multiplayer Integration:');
+const Audio = require('./audio.js');
+const Multiplayer = require('./multiplayer.js');
+
+test('Audio playCursorMove distinguishes empty vs occupied squares', () => {
+  const tones = [];
+  const noises = [];
+  const mockGain = {
+    gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {}, linearRampToValueAtTime: () => {} },
+    connect: () => {}
+  };
+  const mockCtx = {
+    currentTime: 1.0,
+    state: 'running',
+    destination: {},
+    createGain: () => mockGain,
+    createOscillator: () => {
+      let freq = 0;
+      let type = 'sine';
+      return {
+        type,
+        frequency: { setValueAtTime: (f) => { freq = f; }, exponentialRampToValueAtTime: () => {} },
+        connect: () => {},
+        start: () => { tones.push({ freq, type }); },
+        stop: () => {}
+      };
+    },
+    createBuffer: () => ({ getChannelData: () => new Float32Array(50) }),
+    createBufferSource: () => ({
+      buffer: null,
+      connect: () => {},
+      start: () => { noises.push(true); },
+      stop: () => {}
+    }),
+    createBiquadFilter: () => ({
+      type: '',
+      frequency: { setValueAtTime: () => {} },
+      connect: () => {}
+    })
+  };
+
+  global.window = {
+    AudioContext: function () { return mockCtx; }
+  };
+
+  // Test empty cell: should trigger noise burst + wooden tap tone
+  tones.length = 0;
+  noises.length = 0;
+  Audio.playCursorMove({ row: 6, col: 2, isOccupied: false, isSafe: false, tokens: [] });
+  assert.strictEqual(noises.length, 1, 'Empty square should play noise burst');
+  assert.strictEqual(tones.length, 1, 'Empty non-safe square should play 1 tap tone');
+
+  // Test empty safe cell: should trigger noise burst + wooden tap + safe shimmer
+  tones.length = 0;
+  noises.length = 0;
+  Audio.playCursorMove({ row: 6, col: 1, isOccupied: false, isSafe: true, tokens: [] });
+  assert.strictEqual(noises.length, 1, 'Empty safe square should play noise burst');
+  assert.strictEqual(tones.length, 2, 'Empty safe square should play 2 tones (tap + shimmer)');
+
+  // Test occupied cell (Red token): should play bell tone + shimmer, no noise burst
+  tones.length = 0;
+  noises.length = 0;
+  Audio.playCursorMove({
+    row: 6,
+    col: 1,
+    isOccupied: true,
+    tokens: [{ playerIndex: 0, color: 'Red', label: 'Red Token 1' }]
+  });
+  assert.strictEqual(noises.length, 0, 'Occupied square should NOT play noise burst');
+  assert.strictEqual(tones.length, 2, 'Occupied square should play resonant bell and harmonic tones');
+  assert.strictEqual(tones[0].freq, 330, 'Red piece base bell tone frequency should be 330Hz');
+  assert.strictEqual(tones[1].freq, 660, 'Red piece harmonic shimmer frequency should be 660Hz');
+});
+
+test('Audio playMultiplayerEvent produces chimes for join, leave, linkCopied', () => {
+  assert.doesNotThrow(() => {
+    Audio.playMultiplayerEvent('join');
+    Audio.playMultiplayerEvent('leave');
+    Audio.playMultiplayerEvent('linkCopied');
+  });
+});
+
+test('Multiplayer extractRoomId and URL parsing', () => {
+  assert.strictEqual(Multiplayer.extractRoomId('ludo-abc123'), 'ludo-abc123');
+  assert.strictEqual(Multiplayer.extractRoomId('?room=ludo-xyz789'), 'ludo-xyz789');
+  assert.strictEqual(Multiplayer.extractRoomId('https://example.com/ludo/?room=ludo-456def#main'), 'ludo-456def');
+  assert.strictEqual(Multiplayer.extractRoomId('&room=ludo-999qqq'), 'ludo-999qqq');
+});
+
+test('Multiplayer hostRoom, joinRoom, seat assignment and state synchronization simulation', async () => {
+  // Mock BroadcastChannel for headless multi-client simulation
+  const channels = new Map(); // channelName -> Set of handlers
+  class MockBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      if (!channels.has(name)) channels.set(name, new Set());
+      this.handlers = channels.get(name);
+      this.onmessage = null;
+      this.handlers.add(this);
+    }
+    postMessage(data) {
+      for (const ch of this.handlers) {
+        if (ch !== this && ch.onmessage) {
+          // Deliver asynchronously like standard Web API
+          queueMicrotask(() => {
+            if (ch.onmessage) ch.onmessage({ data: JSON.parse(JSON.stringify(data)) });
+          });
+        }
+      }
+    }
+    close() {
+      this.handlers.delete(this);
+    }
+  }
+
+  global.BroadcastChannel = MockBroadcastChannel;
+  global.window = {
+    location: {
+      origin: 'https://example.com',
+      pathname: '/ludo/',
+      search: '',
+      href: 'https://example.com/ludo/'
+    },
+    history: {
+      replaceState: (state, title, url) => {
+        global.window.location.href = url;
+        const qIdx = url.indexOf('?');
+        global.window.location.search = qIdx !== -1 ? url.slice(qIdx) : '';
+      }
+    }
+  };
+
+  // Host creates room
+  let hostLobby = null;
+  Multiplayer.init({
+    onLobbyUpdate: (players) => { hostLobby = players; }
+  });
+
+  const gameState = Ludo.createGame();
+  const hostInfo = Multiplayer.hostRoom('Alice (Host)', gameState);
+  assert(hostInfo.roomId.startsWith('ludo-'), 'Host roomId must start with ludo-');
+  assert(hostInfo.inviteUrl.includes('?room=' + hostInfo.roomId), 'Invite URL must contain ?room=');
+  assert.strictEqual(Multiplayer.isHost(), true, 'Creator must be host');
+  assert.strictEqual(Multiplayer.getLocalPlayerIndex(), 0, 'Host must be seat 0 (Red)');
+  assert.strictEqual(Multiplayer.getLocalPlayerColor(), 'Red', 'Host color must be Red');
+
+  // Verify getRoomFromUrl
+  assert.strictEqual(Multiplayer.getRoomFromUrl(), hostInfo.roomId);
+
+  // Guest joins using a second instance of Multiplayer
+  delete require.cache[require.resolve('./multiplayer.js')];
+  const GuestMultiplayer = require('./multiplayer.js');
+
+  let guestAssignedSeat = null;
+  let guestSyncedState = null;
+  let guestLobby = null;
+
+  GuestMultiplayer.init({
+    onConnectionStatus: (status, info) => {
+      if (status === 'connected') guestAssignedSeat = info.playerIndex;
+    },
+    onStateSync: (synced) => {
+      guestSyncedState = synced;
+    },
+    onLobbyUpdate: (players) => {
+      guestLobby = players;
+    }
+  });
+
+  // Join room using the host's invite URL
+  const joinPromise = GuestMultiplayer.joinRoom(hostInfo.inviteUrl, 'Bob (Guest)');
+
+  // Allow BroadcastChannel microtasks to resolve
+  await new Promise(r => setTimeout(r, 50));
+
+  const joinRes = await joinPromise;
+  assert.strictEqual(joinRes.playerIndex, 1, 'First guest should be assigned seat 1 (Green)');
+  assert.strictEqual(joinRes.color, 'Green', 'Guest color should be Green');
+  assert.strictEqual(GuestMultiplayer.isHost(), false, 'Guest should not be host');
+  assert.strictEqual(GuestMultiplayer.getLocalPlayerIndex(), 1);
+  assert.strictEqual(GuestMultiplayer.getLocalPlayerColor(), 'Green');
+  assert(guestSyncedState !== null, 'Guest should receive state sync from host');
+  assert.strictEqual(guestSyncedState.currentPlayer, 0, 'Synced state current player should match');
+
+  // Clean up
+  Multiplayer.leaveRoom();
+  GuestMultiplayer.leaveRoom();
+});
+
+(async function runAll() {
+  for (const t of testQueue) {
+    totalTests++;
+    try {
+      const res = t.fn();
+      if (res && typeof res.then === 'function') {
+        await res;
+      }
+      passedTests++;
+      console.log(`  ✓ ${t.name}`);
+    } catch (err) {
+      failedTests++;
+      console.error(`  ✗ ${t.name}`);
+      console.error(`    ${err.message}`);
+      if (err.stack) {
+        console.error(err.stack.split('\n').slice(1, 3).join('\n'));
+      }
+    }
+  }
+
+  console.log('\n====================================================');
+  console.log(`Test Results: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);
+  console.log('====================================================');
+
+  if (failedTests > 0) {
+    process.exit(1);
+  }
+})();

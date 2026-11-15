@@ -1135,6 +1135,260 @@
     return items;
   }
 
+  /**
+   * Complete metadata and screen-reader summary for any (row, col) on the 15x15 grid.
+   *
+   * @param {object} state Current game state
+   * @param {number} row 0..14
+   * @param {number} col 0..14
+   * @returns {object} Cell metadata:
+   *   { row, col, type, label, trackIndex, playerIndex, isSafe, isOccupied, tokens, threats, speechSummary }
+   */
+  function getCellInfo(state, row, col) {
+    const r = Number(row);
+    const c = Number(col);
+
+    if (isNaN(r) || isNaN(c) || r < 0 || r > 14 || c < 0 || c > 14) {
+      return {
+        row: r,
+        col: c,
+        type: 'centerArea',
+        label: 'Out of bounds',
+        trackIndex: null,
+        playerIndex: null,
+        isSafe: false,
+        isOccupied: false,
+        tokens: [],
+        threats: [],
+        speechSummary: `Row ${r}, Column ${c}: Out of bounds.`
+      };
+    }
+
+    let type = 'centerArea';
+    let label = 'Center Area';
+    let trackIndex = null;
+    let playerIndex = null;
+    let isSafe = false;
+    const tokens = [];
+
+    // Helper to get tokens of player pIdx matching a condition
+    function collectPlayerTokens(pIdx, predicate) {
+      if (!state || !state.players || !state.players[pIdx]) return;
+      const p = state.players[pIdx];
+      for (let t = 0; t < 4; t++) {
+        const step = p.tokens[t];
+        if (predicate(step, t)) {
+          tokens.push({
+            playerIndex: pIdx,
+            tokenIndex: t,
+            color: COLORS[pIdx],
+            step: step,
+            label: `${COLORS[pIdx]} Token ${t + 1}`
+          });
+        }
+      }
+    }
+
+    // 1. Yards (4 corners of 6x6)
+    if (r <= 5 && c <= 5) {
+      // Red Yard (Player 0)
+      playerIndex = 0;
+      const nestIdx = YARD_TOKEN_COORDS[0].findIndex(coord => coord.row === r && coord.col === c);
+      if (nestIdx !== -1) {
+        type = 'yardNest';
+        label = `Red Yard Nest ${nestIdx + 1}`;
+        isSafe = true;
+        collectPlayerTokens(0, (step, t) => t === nestIdx && step === -1);
+      } else {
+        type = 'yardArea';
+        label = (r === 0 || r === 5 || c === 0 || c === 5) ? 'Red Yard Border' : 'Red Yard Area';
+        isSafe = false;
+      }
+    } else if (r <= 5 && c >= 9) {
+      // Green Yard (Player 1)
+      playerIndex = 1;
+      const nestIdx = YARD_TOKEN_COORDS[1].findIndex(coord => coord.row === r && coord.col === c);
+      if (nestIdx !== -1) {
+        type = 'yardNest';
+        label = `Green Yard Nest ${nestIdx + 1}`;
+        isSafe = true;
+        collectPlayerTokens(1, (step, t) => t === nestIdx && step === -1);
+      } else {
+        type = 'yardArea';
+        label = (r === 0 || r === 5 || c === 9 || c === 14) ? 'Green Yard Border' : 'Green Yard Area';
+        isSafe = false;
+      }
+    } else if (r >= 9 && c >= 9) {
+      // Yellow Yard (Player 2)
+      playerIndex = 2;
+      const nestIdx = YARD_TOKEN_COORDS[2].findIndex(coord => coord.row === r && coord.col === c);
+      if (nestIdx !== -1) {
+        type = 'yardNest';
+        label = `Yellow Yard Nest ${nestIdx + 1}`;
+        isSafe = true;
+        collectPlayerTokens(2, (step, t) => t === nestIdx && step === -1);
+      } else {
+        type = 'yardArea';
+        label = (r === 9 || r === 14 || c === 9 || c === 14) ? 'Yellow Yard Border' : 'Yellow Yard Area';
+        isSafe = false;
+      }
+    } else if (r >= 9 && c <= 5) {
+      // Blue Yard (Player 3)
+      playerIndex = 3;
+      const nestIdx = YARD_TOKEN_COORDS[3].findIndex(coord => coord.row === r && coord.col === c);
+      if (nestIdx !== -1) {
+        type = 'yardNest';
+        label = `Blue Yard Nest ${nestIdx + 1}`;
+        isSafe = true;
+        collectPlayerTokens(3, (step, t) => t === nestIdx && step === -1);
+      } else {
+        type = 'yardArea';
+        label = (r === 9 || r === 14 || c === 0 || c === 5) ? 'Blue Yard Border' : 'Blue Yard Area';
+        isSafe = false;
+      }
+    }
+    // 2. Home Goals (Center cross positions)
+    else if (r === 7 && c === 6) {
+      type = 'homeGoal';
+      playerIndex = 0;
+      label = 'Red Home Goal';
+      isSafe = true;
+      collectPlayerTokens(0, step => step === 56);
+    } else if (r === 6 && c === 7) {
+      type = 'homeGoal';
+      playerIndex = 1;
+      label = 'Green Home Goal';
+      isSafe = true;
+      collectPlayerTokens(1, step => step === 56);
+    } else if (r === 7 && c === 8) {
+      type = 'homeGoal';
+      playerIndex = 2;
+      label = 'Yellow Home Goal';
+      isSafe = true;
+      collectPlayerTokens(2, step => step === 56);
+    } else if (r === 8 && c === 7) {
+      type = 'homeGoal';
+      playerIndex = 3;
+      label = 'Blue Home Goal';
+      isSafe = true;
+      collectPlayerTokens(3, step => step === 56);
+    }
+    // 3. Center Area (Remaining 3x3 center cells: 6..8, 6..8)
+    else if (r >= 6 && r <= 8 && c >= 6 && c <= 8) {
+      type = 'centerArea';
+      playerIndex = null;
+      label = (r === 7 && c === 7) ? 'Board Center' : 'Center Area';
+      isSafe = false;
+    }
+    // 4. Home Stretches
+    else if (r === 7 && c >= 1 && c <= 5) {
+      // Red Home Stretch (cols 1..5 -> steps 51..55)
+      type = 'homeStretch';
+      playerIndex = 0;
+      const stretchNum = c; // 1..5
+      const targetStep = 50 + stretchNum;
+      label = `Red Home Stretch ${stretchNum}`;
+      isSafe = true;
+      collectPlayerTokens(0, step => step === targetStep);
+    } else if (c === 7 && r >= 1 && r <= 5) {
+      // Green Home Stretch (rows 1..5 -> steps 51..55)
+      type = 'homeStretch';
+      playerIndex = 1;
+      const stretchNum = r; // 1..5
+      const targetStep = 50 + stretchNum;
+      label = `Green Home Stretch ${stretchNum}`;
+      isSafe = true;
+      collectPlayerTokens(1, step => step === targetStep);
+    } else if (r === 7 && c >= 9 && c <= 13) {
+      // Yellow Home Stretch (cols 13 down to 9 -> steps 51..55)
+      type = 'homeStretch';
+      playerIndex = 2;
+      const stretchNum = 14 - c; // col 13 is 1, col 9 is 5
+      const targetStep = 50 + stretchNum;
+      label = `Yellow Home Stretch ${stretchNum}`;
+      isSafe = true;
+      collectPlayerTokens(2, step => step === targetStep);
+    } else if (c === 7 && r >= 9 && r <= 13) {
+      // Blue Home Stretch (rows 13 down to 9 -> steps 51..55)
+      type = 'homeStretch';
+      playerIndex = 3;
+      const stretchNum = 14 - r; // row 13 is 1, row 9 is 5
+      const targetStep = 50 + stretchNum;
+      label = `Blue Home Stretch ${stretchNum}`;
+      isSafe = true;
+      collectPlayerTokens(3, step => step === targetStep);
+    }
+    // 5. Main Track (52 squares)
+    else {
+      const tIdx = TRACK_COORDS.findIndex(coord => coord.row === r && coord.col === c);
+      if (tIdx !== -1) {
+        type = 'track';
+        trackIndex = tIdx;
+        const startPIdx = START_INDICES.indexOf(tIdx);
+        playerIndex = startPIdx !== -1 ? startPIdx : null;
+        isSafe = isSafeSquare(tIdx);
+        label = formatTrackDesc(tIdx);
+
+        // Collect tokens on this track square
+        if (state && state.players) {
+          for (let pIdx = 0; pIdx < 4; pIdx++) {
+            const p = state.players[pIdx];
+            if (!p || p.type === 'none') continue;
+            for (let t = 0; t < 4; t++) {
+              const step = p.tokens[t];
+              if (step >= 0 && step <= 50) {
+                const abs = getAbsoluteTrackIndex(pIdx, step);
+                if (abs === tIdx) {
+                  tokens.push({
+                    playerIndex: pIdx,
+                    tokenIndex: t,
+                    color: COLORS[pIdx],
+                    step: step,
+                    label: `${COLORS[pIdx]} Token ${t + 1}`
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const isOccupied = tokens.length > 0;
+
+    // Threats: Active opponent threats if this is a track square
+    let threats = [];
+    if (type === 'track' && trackIndex !== null && isOccupied && !isSafe && state) {
+      threats = getThreatsForSquare(state, tokens[0].playerIndex, trackIndex);
+    }
+
+    // Compose screen-reader announcement
+    let occupancyText = 'Empty.';
+    if (isOccupied) {
+      const tokenNames = tokens.map(t => t.label).join(', ');
+      occupancyText = `Occupied by ${tokenNames}.`;
+      if (threats.length > 0) {
+        occupancyText += ` Warning: Threatened by ${threats.join(', ')}.`;
+      }
+    }
+
+    const speechSummary = `Row ${r}, Column ${c}: ${label}. ${occupancyText}`;
+
+    return {
+      row: r,
+      col: c,
+      type,
+      label,
+      trackIndex,
+      playerIndex,
+      isSafe,
+      isOccupied,
+      tokens,
+      threats,
+      speechSummary
+    };
+  }
+
   return {
     COLORS,
     START_INDICES,
@@ -1158,6 +1412,7 @@
     getGameStatusText,
     getTokenCoords,
     getSquareCoords,
-    getBoardExplorerItems
+    getBoardExplorerItems,
+    getCellInfo
   };
 });

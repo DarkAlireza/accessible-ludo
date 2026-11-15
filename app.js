@@ -10,12 +10,13 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(
       typeof window !== 'undefined' ? window.LudoEngine : null,
-      typeof window !== 'undefined' ? window.LudoAudio : null
+      typeof window !== 'undefined' ? window.LudoAudio : null,
+      typeof window !== 'undefined' ? window.LudoMultiplayer : null
     );
   } else {
-    root.LudoApp = factory(root.LudoEngine, root.LudoAudio);
+    root.LudoApp = factory(root.LudoEngine, root.LudoAudio, root.LudoMultiplayer);
   }
-})(typeof self !== 'undefined' ? self : this, function (LudoEngine, LudoAudio) {
+})(typeof self !== 'undefined' ? self : this, function (LudoEngine, LudoAudio, LudoMultiplayer) {
   'use strict';
 
   // State container
@@ -24,7 +25,9 @@
     aiSpeed: 'slow', // 'slow' (1400ms), 'normal' (850ms), 'fast' (350ms)
     theme: 'dark',
     filterOccupied: true,
-    explorerIndex: 0
+    explorerIndex: 0,
+    cursorRow: 6, // Default Red Start Track 1 (row 6, col 1)
+    cursorCol: 1
   };
 
   let aiTurnTimer = null;
@@ -137,6 +140,11 @@
         LudoAudio = window.LudoAudio;
       }
     }
+    if (!LudoMultiplayer) {
+      if (typeof window !== 'undefined' && window.LudoMultiplayer) {
+        LudoMultiplayer = window.LudoMultiplayer;
+      }
+    }
 
     if (aiTurnTimer) {
       clearTimeout(aiTurnTimer);
@@ -154,6 +162,15 @@
     const startMsg = 'New Ludo game started. Red to play. Press Space or R to roll the dice.';
     announce(startMsg, 'polite', true);
 
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
+      LudoMultiplayer.setCachedState(state);
+      LudoMultiplayer.broadcastState({
+        type: 'STATE_SYNC',
+        state: state,
+        message: 'Host started a new game.'
+      });
+    }
+
     render();
     checkTurn();
   }
@@ -166,6 +183,26 @@
 
     const currentPlayer = state.players[state.currentPlayer];
     if (!currentPlayer || currentPlayer.type === 'none') return;
+
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer()) {
+      const localIdx = LudoMultiplayer.getLocalPlayerIndex();
+      if (state.currentPlayer === localIdx) {
+        if (state.phase === 'ROLL') {
+          if (LudoAudio) {
+            LudoAudio.playTurnStart(state.currentPlayer, true);
+          }
+          setTimeout(function () {
+            const rollBtn = document.getElementById('roll-btn');
+            if (rollBtn && document.activeElement !== rollBtn) {
+              rollBtn.focus();
+            }
+          }, 100);
+        }
+      } else if (LudoMultiplayer.isHost() && currentPlayer.type === 'ai') {
+        scheduleAITurn();
+      }
+      return;
+    }
 
     if (currentPlayer.type === 'ai') {
       scheduleAITurn();
@@ -187,6 +224,439 @@
   }
 
   /**
+   * Updates the 15x15 visual board cursor position, plays sound cue,
+   * updates status bar, and announces square details.
+   */
+  function updateBoardCursor(row, col, announceMove) {
+    if (announceMove === undefined) announceMove = true;
+    config.cursorRow = Math.max(0, Math.min(14, row));
+    config.cursorCol = Math.max(0, Math.min(14, col));
+
+    if (typeof document === 'undefined') return;
+
+    const grid = document.getElementById('visual-board');
+    if (grid) {
+      const prevActive = grid.querySelector('.board-cursor-active');
+      if (prevActive) {
+        prevActive.classList.remove('board-cursor-active');
+      }
+      const newActive = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
+      if (newActive) {
+        newActive.classList.add('board-cursor-active');
+      }
+    }
+
+    if (!state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
+    const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
+
+    const cursorTextEl = document.getElementById('board-cursor-text');
+    if (cursorTextEl) {
+      let desc = `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — ${cellInfo.label}`;
+      if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
+        desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
+      } else {
+        desc += ' — Empty';
+      }
+      cursorTextEl.textContent = desc;
+    }
+
+    if (announceMove) {
+      if (LudoAudio && typeof LudoAudio.playCursorMove === 'function') {
+        LudoAudio.playCursorMove(cellInfo);
+      }
+      announce(cellInfo.speechSummary, 'polite', false);
+    }
+  }
+
+  /**
+   * Steps the board cursor sequentially backward (-1) or forward (+1) along the 52-square track.
+   */
+  function stepTrackCursor(delta) {
+    if (!LudoEngine || !LudoEngine.TRACK_COORDS) return;
+    const curIdx = LudoEngine.TRACK_COORDS.findIndex(
+      c => c.row === config.cursorRow && c.col === config.cursorCol
+    );
+    let nextIdx = 0;
+    if (curIdx === -1) {
+      nextIdx = delta > 0 ? 0 : 51;
+    } else {
+      nextIdx = (curIdx + delta + 52) % 52;
+    }
+    const coord = LudoEngine.TRACK_COORDS[nextIdx];
+    if (coord) {
+      updateBoardCursor(coord.row, coord.col, true);
+    }
+  }
+
+  /**
+   * Enter key on the board cursor: if in MOVE phase and current human has a movable token
+   * on that square, execute its move; otherwise announce full square details.
+   */
+  function handleBoardCursorEnter() {
+    if (!state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
+    const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
+
+    // If state.phase === 'MOVE' and cell contains a movable token belonging to current human
+    if (state.phase === 'MOVE' && state.validMoves && state.validMoves.length > 0) {
+      const movableToken = (cellInfo.tokens || []).find(function (t) {
+        return t.playerIndex === state.currentPlayer && state.validMoves.some(function (m) {
+          return m.tokenIndex === t.tokenIndex;
+        });
+      });
+
+      if (movableToken) {
+        handleHumanMove(movableToken.tokenIndex);
+        return;
+      }
+    }
+
+    announce(cellInfo.speechSummary, 'assertive', false);
+    if (LudoAudio && typeof LudoAudio.playCursorMove === 'function') {
+      LudoAudio.playCursorMove(cellInfo);
+    }
+  }
+
+  /**
+   * Updates the board cursor status bar text
+   */
+  function updateBoardCursorBar() {
+    if (typeof document === 'undefined') return;
+    const cursorTextEl = document.getElementById('board-cursor-text');
+    if (!cursorTextEl || !state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
+
+    const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
+    let desc = `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — ${cellInfo.label}`;
+    if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
+      desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
+    } else {
+      desc += ' — Empty';
+    }
+    cursorTextEl.textContent = desc;
+  }
+
+  /**
+   * Focuses the Multiplayer Lobby Card and announces status
+   */
+  function focusMultiplayerPanel() {
+    const panel = document.getElementById('multiplayer-panel');
+    if (!panel) return;
+    panel.scrollIntoView({ behavior: 'smooth' });
+    const inviteUrlInput = document.getElementById('mp-invite-url');
+    const hostBtn = document.getElementById('host-mp-btn');
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer()) {
+      if (inviteUrlInput) inviteUrlInput.focus();
+    } else {
+      if (hostBtn) hostBtn.focus();
+    }
+    announce('Multiplayer lobby focused. Press C to copy invite link, or click Host to create a room.', 'polite', false);
+  }
+
+  /**
+   * Copies the multiplayer room share link to clipboard
+   */
+  function copyMultiplayerInviteLink() {
+    if (!LudoMultiplayer) return;
+    LudoMultiplayer.copyInviteLink().then(function (res) {
+      if (res && res.success) {
+        if (LudoAudio && typeof LudoAudio.playMultiplayerEvent === 'function') {
+          LudoAudio.playMultiplayerEvent('linkCopied');
+        }
+        announce(`Multiplayer invite link copied to clipboard: ${res.url}`, 'assertive', true);
+      } else {
+        announce('Please create or join a multiplayer room first to copy an invite link.', 'assertive', false);
+      }
+    }).catch(function () {
+      announce('Unable to copy invite link.', 'assertive', false);
+    });
+  }
+
+  /**
+   * Hosts a new Multiplayer match
+   */
+  function handleHostMultiplayer() {
+    if (!LudoMultiplayer) return;
+    try {
+      const hostConfigs = [
+        { name: 'Red (Host)', type: 'human' },
+        { name: 'Green', type: 'ai' },
+        { name: 'Yellow', type: 'ai' },
+        { name: 'Blue', type: 'ai' }
+      ];
+      initGame(hostConfigs);
+
+      const res = LudoMultiplayer.hostRoom('Red (Host)');
+      if (LudoAudio && typeof LudoAudio.playMultiplayerEvent === 'function') {
+        LudoAudio.playMultiplayerEvent('join');
+      }
+
+      updateMultiplayerUI();
+      announce(`Multiplayer room ${res.roomId} created. You are Red (Host). Share link copied to clipboard.`, 'assertive', true);
+
+      LudoMultiplayer.copyInviteLink().catch(function () {});
+
+      LudoMultiplayer.broadcastState({
+        type: 'STATE_SYNC',
+        state: state,
+        message: `Host created room ${res.roomId}.`
+      });
+    } catch (e) {
+      announce('Failed to host multiplayer room: ' + e.message, 'assertive', false);
+    }
+  }
+
+  /**
+   * Joins an existing Multiplayer room
+   */
+  function handleJoinMultiplayer(roomId) {
+    if (!LudoMultiplayer) return;
+    const cleanId = LudoMultiplayer.extractRoomId(roomId);
+    if (!cleanId) {
+      announce('Please enter a valid multiplayer room code or invite link.', 'assertive', false);
+      return;
+    }
+
+    announce(`Connecting to multiplayer room ${cleanId}...`, 'assertive', true);
+    updateMultiplayerStatus(`Connecting to ${cleanId}...`, 'connecting');
+
+    LudoMultiplayer.joinRoom(cleanId, 'Guest')
+      .then(function (res) {
+        if (LudoAudio && typeof LudoAudio.playMultiplayerEvent === 'function') {
+          LudoAudio.playMultiplayerEvent('join');
+        }
+        updateMultiplayerUI();
+        const color = LudoMultiplayer.getLocalPlayerColor() || 'Guest';
+        announce(`Connected to room ${cleanId}! You are playing as ${color}.`, 'assertive', true);
+      })
+      .catch(function (err) {
+        announce(`Failed to join room ${cleanId}: ${err.message || err}`, 'assertive', false);
+        updateMultiplayerStatus('Connection failed', 'error');
+      });
+  }
+
+  function handleJoinMultiplayerFromInput() {
+    const input = document.getElementById('mp-join-code');
+    if (!input) return;
+    handleJoinMultiplayer(input.value);
+  }
+
+  /**
+   * Leaves current Multiplayer room and returns to local offline mode
+   */
+  function handleLeaveMultiplayer() {
+    if (!LudoMultiplayer) return;
+    LudoMultiplayer.leaveRoom();
+    if (LudoAudio && typeof LudoAudio.playMultiplayerEvent === 'function') {
+      LudoAudio.playMultiplayerEvent('leave');
+    }
+    updateMultiplayerUI();
+    announce('Left multiplayer room. Returned to offline local play.', 'assertive', true);
+    initGame();
+  }
+
+  /**
+   * Updates Multiplayer UI badges, buttons, and players list
+   */
+  function updateMultiplayerUI() {
+    if (typeof document === 'undefined') return;
+    const isMp = LudoMultiplayer && LudoMultiplayer.isMultiplayer();
+    const hostBtn = document.getElementById('host-mp-btn');
+    const leaveBtn = document.getElementById('leave-mp-btn');
+    const urlInput = document.getElementById('mp-invite-url');
+    const statusText = document.getElementById('mp-status-text');
+    const playersListEl = document.getElementById('mp-players-list');
+
+    if (hostBtn) {
+      hostBtn.classList.toggle('hidden', isMp);
+    }
+    if (leaveBtn) {
+      leaveBtn.classList.toggle('hidden', !isMp);
+    }
+    if (urlInput) {
+      urlInput.value = isMp ? LudoMultiplayer.getInviteUrl() : '';
+    }
+
+    if (statusText) {
+      if (!isMp) {
+        statusText.textContent = 'Offline / Local Mode';
+        statusText.className = 'badge badge-mp-status';
+      } else {
+        const role = LudoMultiplayer.isHost() ? 'Host' : 'Guest';
+        const color = LudoMultiplayer.getLocalPlayerColor() || 'Spectator';
+        statusText.textContent = `Connected: ${LudoMultiplayer.getRoomId()} (You are ${color} - ${role})`;
+        statusText.className = 'badge badge-mp-status connected';
+      }
+    }
+
+    if (playersListEl) {
+      playersListEl.innerHTML = '';
+      const localIdx = LudoMultiplayer ? LudoMultiplayer.getLocalPlayerIndex() : 0;
+      const colors = ['Red', 'Green', 'Yellow', 'Blue'];
+
+      for (let i = 0; i < 4; i++) {
+        const tag = document.createElement('span');
+        const colorLower = colors[i].toLowerCase();
+        tag.className = `mp-player-tag tag-${colorLower}`;
+        if (isMp && i === localIdx) {
+          tag.classList.add('current-peer');
+        }
+
+        let desc = `${colors[i]}: `;
+        if (!state) {
+          desc += (i === 0 ? 'Human' : 'AI');
+        } else {
+          const p = state.players[i];
+          if (!p || p.type === 'none') {
+            desc += 'Off';
+          } else if (p.type === 'human') {
+            desc += isMp && i === localIdx ? `${p.name} (You)` : p.name;
+          } else {
+            desc += 'AI (Computer)';
+          }
+        }
+        tag.textContent = desc;
+        playersListEl.appendChild(tag);
+      }
+    }
+  }
+
+  function updateMultiplayerStatus(text, statusClass) {
+    const statusText = document.getElementById('mp-status-text');
+    if (!statusText) return;
+    statusText.textContent = text;
+    statusText.className = `badge badge-mp-status ${statusClass || ''}`;
+  }
+
+  /**
+   * Handles action sent from a remote guest to the host
+   */
+  function handleRemoteActionFromGuest(action) {
+    if (!state || !LudoMultiplayer || !LudoMultiplayer.isHost()) return;
+    if (!action) return;
+
+    if (action.type === 'REMOTE_ROLL' || action.type === 'ROLL') {
+      if (state.phase === 'ROLL' && state.currentPlayer === action.playerIndex) {
+        const rollRes = LudoEngine.rollDice(state);
+        if (LudoAudio) LudoAudio.playDiceRoll(rollRes.roll);
+        render();
+        announce(rollRes.message, 'assertive', true);
+
+        LudoMultiplayer.broadcastState({
+          type: 'STATE_SYNC',
+          state: state,
+          roll: rollRes.roll,
+          message: rollRes.message,
+          movingPlayer: state.currentPlayer
+        });
+
+        if (rollRes.tripleSix || rollRes.autoPassed) {
+          scheduleAITurnOrHuman();
+        }
+      }
+    } else if (action.type === 'REMOTE_MOVE' || action.type === 'MOVE') {
+      if (state.phase === 'MOVE' && state.currentPlayer === action.playerIndex) {
+        const movingPlayer = state.currentPlayer;
+        const moveRes = LudoEngine.applyMove(state, action.tokenIndex);
+        if (LudoAudio && moveRes.moveResult) {
+          LudoAudio.playMove(movingPlayer, moveRes.moveResult);
+        }
+        render();
+        announce(moveRes.message, 'assertive', true);
+
+        LudoMultiplayer.broadcastState({
+          type: 'STATE_SYNC',
+          state: state,
+          moveResult: moveRes.moveResult,
+          message: moveRes.message,
+          movingPlayer: movingPlayer
+        });
+
+        if (moveRes.gameOver) {
+          if (LudoAudio) LudoAudio.playWin();
+          announce('Game Over! ' + (moveRes.winner ? moveRes.winner.name : '') + ' wins the game!', 'assertive', true);
+        } else if (!moveRes.bonusTurn) {
+          scheduleAITurnOrHuman();
+        }
+      }
+    }
+  }
+
+  /**
+   * Initializes Multiplayer Module and listeners
+   */
+  function initMultiplayerModule() {
+    if (!LudoMultiplayer) {
+      if (typeof window !== 'undefined' && window.LudoMultiplayer) {
+        LudoMultiplayer = window.LudoMultiplayer;
+      }
+    }
+    if (!LudoMultiplayer || typeof LudoMultiplayer.init !== 'function') return;
+
+    LudoMultiplayer.init({
+      onStateSync: function (payload) {
+        if (!payload) return;
+        if (payload.state) {
+          state = payload.state;
+        }
+        if (payload.roll && LudoAudio) {
+          LudoAudio.playDiceRoll(payload.roll);
+        }
+        if (payload.moveResult && LudoAudio) {
+          LudoAudio.playMove(payload.movingPlayer !== undefined ? payload.movingPlayer : state.currentPlayer, payload.moveResult);
+        }
+        if (payload.message) {
+          announce(payload.message, 'assertive', true);
+        }
+        render();
+        updateMultiplayerUI();
+      },
+      onRemoteAction: function (action) {
+        handleRemoteActionFromGuest(action);
+      },
+      onRemoteRoll: function (playerIndex) {
+        handleRemoteActionFromGuest({ type: 'REMOTE_ROLL', playerIndex: playerIndex });
+      },
+      onRemoteMove: function (playerIndex, tokenIndex) {
+        handleRemoteActionFromGuest({ type: 'REMOTE_MOVE', playerIndex: playerIndex, tokenIndex: tokenIndex });
+      },
+      onLobbyUpdate: function (playersList) {
+        if (LudoMultiplayer.isHost() && state) {
+          playersList.forEach(function (guest) {
+            if (guest.playerIndex > 0 && guest.playerIndex < 4) {
+              if (state.players[guest.playerIndex].type !== 'human') {
+                state.players[guest.playerIndex].type = 'human';
+                state.players[guest.playerIndex].name = guest.name || `${LudoEngine.COLORS[guest.playerIndex]} (Player)`;
+                if (LudoAudio && typeof LudoAudio.playMultiplayerEvent === 'function') {
+                  LudoAudio.playMultiplayerEvent('join');
+                }
+                announce(`${state.players[guest.playerIndex].name} joined the game as ${LudoEngine.COLORS[guest.playerIndex]}!`, 'assertive', true);
+                LudoMultiplayer.broadcastState({
+                  type: 'STATE_SYNC',
+                  state: state,
+                  message: `${state.players[guest.playerIndex].name} joined as ${LudoEngine.COLORS[guest.playerIndex]}!`
+                });
+              }
+            }
+          });
+        }
+        updateMultiplayerUI();
+        renderScoreboard();
+      },
+      onConnectionStatus: function (status) {
+        if (status === 'connected') {
+          updateMultiplayerUI();
+        } else if (status === 'disconnected') {
+          updateMultiplayerUI();
+        } else if (status === 'error') {
+          updateMultiplayerStatus('Multiplayer Warning', 'error');
+        }
+      },
+      onAnnouncement: function (msg, priority) {
+        announce(msg, priority || 'polite', true);
+      }
+    });
+  }
+
+  /**
    * AI Turn Scheduler: ensures spaced pacing so screen readers can narrate AI actions
    */
   function scheduleAITurn() {
@@ -205,6 +675,11 @@
     const player = state.players[state.currentPlayer];
     if (!player || player.type !== 'ai') return;
 
+    // In multiplayer mode, only host executes AI steps
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && !LudoMultiplayer.isHost()) {
+      return;
+    }
+
     if (state.phase === 'ROLL') {
       // Play audio turn cue
       if (LudoAudio) {
@@ -219,6 +694,16 @@
 
       render();
       announce(rollRes.message, 'polite', true);
+
+      if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
+        LudoMultiplayer.broadcastState({
+          type: 'STATE_SYNC',
+          state: state,
+          roll: rollRes.roll,
+          message: rollRes.message,
+          movingPlayer: state.currentPlayer
+        });
+      }
 
       if (rollRes.tripleSix || rollRes.autoPassed) {
         // Turn was forfeited or passed
@@ -242,6 +727,11 @@
     const player = state.players[state.currentPlayer];
     if (!player || player.type !== 'ai') return;
 
+    // In multiplayer mode, only host executes AI steps
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && !LudoMultiplayer.isHost()) {
+      return;
+    }
+
     const bestTokenIndex = LudoEngine.chooseAIMove(state);
     if (bestTokenIndex === null || bestTokenIndex === undefined) {
       return;
@@ -258,6 +748,16 @@
     render();
     announce(moveRes.message, 'polite', true);
 
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
+      LudoMultiplayer.broadcastState({
+        type: 'STATE_SYNC',
+        state: state,
+        moveResult: moveRes.moveResult,
+        message: moveRes.message,
+        movingPlayer: movingPlayer
+      });
+    }
+
     if (moveRes.gameOver) {
       if (LudoAudio) LudoAudio.playWin();
       announce('Game Over! ' + (moveRes.winner ? moveRes.winner.name : '') + ' wins the game!', 'assertive', true);
@@ -272,7 +772,51 @@
   function scheduleAITurnOrHuman() {
     if (!state || state.gameOver) return;
     const nextPlayer = state.players[state.currentPlayer];
+    if (!nextPlayer) return;
 
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer()) {
+      const localIdx = LudoMultiplayer.getLocalPlayerIndex();
+      if (!LudoMultiplayer.isHost()) {
+        if (state.currentPlayer === localIdx) {
+          if (LudoAudio) {
+            LudoAudio.playTurnStart(state.currentPlayer, true);
+          }
+          const prompt = `It is your turn (${nextPlayer.name})! Press Space or R to roll the dice.`;
+          announce(prompt, 'assertive', true);
+          setTimeout(function () {
+            const rollBtn = document.getElementById('roll-btn');
+            if (rollBtn) rollBtn.focus();
+          }, 100);
+        } else {
+          announce(`It is now ${nextPlayer.name}'s turn. Waiting for remote move.`, 'polite', true);
+        }
+        return;
+      } else {
+        // Host mode
+        if (nextPlayer.type === 'ai') {
+          aiTurnTimer = setTimeout(function () {
+            executeAITurnStep();
+          }, getAIDelay());
+          return;
+        } else if (state.currentPlayer === localIdx) {
+          if (LudoAudio) {
+            LudoAudio.playTurnStart(state.currentPlayer, true);
+          }
+          const prompt = `It is your turn (${nextPlayer.name})! Press Space or R to roll the dice.`;
+          announce(prompt, 'assertive', true);
+          setTimeout(function () {
+            const rollBtn = document.getElementById('roll-btn');
+            if (rollBtn) rollBtn.focus();
+          }, 100);
+          return;
+        } else {
+          announce(`It is now ${nextPlayer.name}'s turn. Waiting for remote player.`, 'polite', true);
+          return;
+        }
+      }
+    }
+
+    // Local / Offline mode
     if (nextPlayer.type === 'ai') {
       aiTurnTimer = setTimeout(function () {
         executeAITurnStep();
@@ -301,22 +845,50 @@
       return;
     }
 
-    const player = state.players[state.currentPlayer];
-    if (!player || player.type !== 'human') {
-      announce('Please wait for the computer to finish its turn.', 'assertive', false);
-      if (LudoAudio) LudoAudio.playError();
-      return;
-    }
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer()) {
+      const localIdx = LudoMultiplayer.getLocalPlayerIndex();
+      if (state.currentPlayer !== localIdx) {
+        announce(`It is not your turn. Please wait for ${state.players[state.currentPlayer].name}.`, 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
 
-    if (state.phase !== 'ROLL') {
-      announce('Dice already rolled. Please select a move.', 'assertive', false);
-      if (LudoAudio) LudoAudio.playError();
-      return;
-    }
+      if (state.phase !== 'ROLL') {
+        announce('Dice already rolled. Please select a move.', 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
 
-    // Initialize audio context on first user click/keypress
-    if (LudoAudio && typeof LudoAudio.init === 'function') {
-      LudoAudio.init();
+      if (LudoAudio && typeof LudoAudio.init === 'function') {
+        LudoAudio.init();
+      }
+
+      if (!LudoMultiplayer.isHost()) {
+        LudoMultiplayer.sendAction({
+          type: 'REMOTE_ROLL',
+          playerIndex: localIdx
+        });
+        announce('Rolling dice...', 'assertive', false);
+        return;
+      }
+    } else {
+      const player = state.players[state.currentPlayer];
+      if (!player || player.type !== 'human') {
+        announce('Please wait for the computer to finish its turn.', 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
+
+      if (state.phase !== 'ROLL') {
+        announce('Dice already rolled. Please select a move.', 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
+
+      // Initialize audio context on first user click/keypress
+      if (LudoAudio && typeof LudoAudio.init === 'function') {
+        LudoAudio.init();
+      }
     }
 
     const rollRes = LudoEngine.rollDice(state);
@@ -327,6 +899,16 @@
 
     render();
     announce(rollRes.message, 'assertive', true);
+
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
+      LudoMultiplayer.broadcastState({
+        type: 'STATE_SYNC',
+        state: state,
+        roll: rollRes.roll,
+        message: rollRes.message,
+        movingPlayer: state.currentPlayer
+      });
+    }
 
     if (rollRes.tripleSix || rollRes.autoPassed) {
       // Turn forfeited or passed automatically
@@ -349,21 +931,53 @@
   function handleHumanMove(tokenIndex) {
     if (!state || state.gameOver) return;
 
-    const player = state.players[state.currentPlayer];
-    if (!player || player.type !== 'human') return;
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer()) {
+      const localIdx = LudoMultiplayer.getLocalPlayerIndex();
+      if (state.currentPlayer !== localIdx) {
+        announce(`It is not your turn. Please wait for ${state.players[state.currentPlayer].name}.`, 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
 
-    if (state.phase !== 'MOVE') {
-      announce('You need to roll the dice first.', 'assertive', false);
-      if (LudoAudio) LudoAudio.playError();
-      return;
-    }
+      if (state.phase !== 'MOVE') {
+        announce('You need to roll the dice first.', 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
 
-    // Verify if this token is among valid moves
-    const move = (state.validMoves || []).find(m => m.tokenIndex === tokenIndex);
-    if (!move) {
-      announce(`Token ${tokenIndex + 1} has no valid move with a roll of ${state.lastRoll}.`, 'assertive', false);
-      if (LudoAudio) LudoAudio.playError();
-      return;
+      const move = (state.validMoves || []).find(m => m.tokenIndex === tokenIndex);
+      if (!move) {
+        announce(`Token ${tokenIndex + 1} has no valid move with a roll of ${state.lastRoll}.`, 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
+
+      if (!LudoMultiplayer.isHost()) {
+        LudoMultiplayer.sendAction({
+          type: 'REMOTE_MOVE',
+          playerIndex: localIdx,
+          tokenIndex: tokenIndex
+        });
+        announce(`Moving Token ${tokenIndex + 1}...`, 'assertive', false);
+        return;
+      }
+    } else {
+      const player = state.players[state.currentPlayer];
+      if (!player || player.type !== 'human') return;
+
+      if (state.phase !== 'MOVE') {
+        announce('You need to roll the dice first.', 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
+
+      // Verify if this token is among valid moves
+      const move = (state.validMoves || []).find(m => m.tokenIndex === tokenIndex);
+      if (!move) {
+        announce(`Token ${tokenIndex + 1} has no valid move with a roll of ${state.lastRoll}.`, 'assertive', false);
+        if (LudoAudio) LudoAudio.playError();
+        return;
+      }
     }
 
     const movingPlayer = state.currentPlayer;
@@ -375,6 +989,16 @@
 
     render();
     announce(moveRes.message, 'assertive', true);
+
+    if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
+      LudoMultiplayer.broadcastState({
+        type: 'STATE_SYNC',
+        state: state,
+        moveResult: moveRes.moveResult,
+        message: moveRes.message,
+        movingPlayer: movingPlayer
+      });
+    }
 
     if (moveRes.gameOver) {
       if (LudoAudio) LudoAudio.playWin();
@@ -558,12 +1182,73 @@
       return;
     }
 
-    // 13. Arrow Keys Navigation in Board Explorer when list is focused or active
-    if (document.activeElement && (document.activeElement.id === 'explorer-list' || document.activeElement.classList.contains('explorer-item'))) {
+    // 13. P: Multiplayer Lobby / Host & Share Link
+    if (code === 'KeyP') {
+      e.preventDefault();
+      focusMultiplayerPanel();
+      return;
+    }
+
+    // 14. C: Copy Multiplayer Invite Link
+    if (code === 'KeyC') {
+      e.preventDefault();
+      copyMultiplayerInviteLink();
+      return;
+    }
+
+    // 15. Arrow Keys, Track Step [ / ], and Enter Navigation
+    const isExplorerFocused = document.activeElement && (document.activeElement.id === 'explorer-list' || document.activeElement.classList.contains('explorer-item'));
+
+    if (isExplorerFocused) {
       if (code === 'ArrowDown' || code === 'ArrowUp' || code === 'ArrowRight' || code === 'ArrowLeft' || code === 'Home' || code === 'End') {
         e.preventDefault();
         handleExplorerArrowKey(code);
         return;
+      }
+    } else {
+      // Direct 15x15 Board Arrow-Key Navigation
+      if (code === 'ArrowUp') {
+        e.preventDefault();
+        updateBoardCursor(config.cursorRow - 1, config.cursorCol, true);
+        return;
+      }
+      if (code === 'ArrowDown') {
+        e.preventDefault();
+        updateBoardCursor(config.cursorRow + 1, config.cursorCol, true);
+        return;
+      }
+      if (code === 'ArrowLeft') {
+        e.preventDefault();
+        updateBoardCursor(config.cursorRow, config.cursorCol - 1, true);
+        return;
+      }
+      if (code === 'ArrowRight') {
+        e.preventDefault();
+        updateBoardCursor(config.cursorRow, config.cursorCol + 1, true);
+        return;
+      }
+
+      // [ and ] track step keys
+      if (key === '[' || code === 'BracketLeft') {
+        e.preventDefault();
+        stepTrackCursor(-1);
+        return;
+      }
+      if (key === ']' || code === 'BracketRight') {
+        e.preventDefault();
+        stepTrackCursor(1);
+        return;
+      }
+
+      // Enter key: inspect or move piece at board cursor
+      if (code === 'Enter' || key === 'Enter') {
+        const active = document.activeElement;
+        const isInteractive = active && (active.tagName === 'BUTTON' || active.tagName === 'A' || active.tagName === 'SELECT' || active.tagName === 'INPUT');
+        if (!isInteractive) {
+          e.preventDefault();
+          handleBoardCursorEnter();
+          return;
+        }
       }
     }
   }
@@ -873,6 +1558,7 @@
     renderVisualBoard();
     renderExplorer();
     renderScoreboard();
+    updateMultiplayerUI();
   }
 
   /**
@@ -881,6 +1567,10 @@
   function renderTurnCenter() {
     const player = state.players[state.currentPlayer];
     if (!player) return;
+
+    const isMp = LudoMultiplayer && LudoMultiplayer.isMultiplayer();
+    const localIdx = isMp ? LudoMultiplayer.getLocalPlayerIndex() : null;
+    const isLocalTurn = isMp ? (state.currentPlayer === localIdx) : (player.type === 'human');
 
     const playerBadge = document.getElementById('player-badge');
     const phaseBadge = document.getElementById('phase-badge');
@@ -896,7 +1586,15 @@
     // Player Badge
     if (playerBadge) {
       playerBadge.className = `badge badge-player ${player.color.toLowerCase()}`;
-      playerBadge.textContent = `${player.name} (${player.type === 'human' ? 'Human' : 'AI'})`;
+      let roleDesc = player.type === 'human' ? 'Human' : 'AI';
+      if (isMp) {
+        if (state.currentPlayer === localIdx) {
+          roleDesc = 'You';
+        } else if (player.type === 'human') {
+          roleDesc = 'Remote';
+        }
+      }
+      playerBadge.textContent = `${player.name} (${roleDesc})`;
     }
 
     // Phase Badge & Announcement
@@ -923,16 +1621,16 @@
         const winner = state.winners.length ? state.players[state.winners[0]].name : '';
         announcementEl.textContent = `Game Over! ${winner} is victorious! Press N to start a new game.`;
       } else if (state.phase === 'ROLL') {
-        if (player.type === 'human') {
+        if (isLocalTurn) {
           announcementEl.innerHTML = `<strong>Your Turn (${player.name}):</strong> Press <kbd>Space</kbd> or <kbd>R</kbd> or click below to roll the dice.`;
         } else {
-          announcementEl.textContent = `${player.name} (AI) is taking its turn...`;
+          announcementEl.textContent = `${player.name} is taking their turn...`;
         }
       } else if (state.phase === 'MOVE') {
-        if (player.type === 'human') {
-          announcementEl.innerHTML = `<strong>Rolled a ${state.lastRoll}:</strong> Choose a token to move using keys <kbd>1</kbd>–<kbd>4</kbd> or click an available move below.`;
+        if (isLocalTurn) {
+          announcementEl.innerHTML = `<strong>Rolled a ${state.lastRoll}:</strong> Choose a token to move using keys <kbd>1</kbd>–<kbd>4</kbd>, click below, or press <kbd>Enter</kbd> on its square.`;
         } else {
-          announcementEl.textContent = `${player.name} (AI) rolled a ${state.lastRoll} and is selecting a move...`;
+          announcementEl.textContent = `${player.name} rolled a ${state.lastRoll} and is selecting a move...`;
         }
       }
     }
@@ -953,7 +1651,7 @@
 
     // Roll Button State
     if (rollBtn) {
-      const canRoll = !state.gameOver && state.phase === 'ROLL' && player.type === 'human';
+      const canRoll = !state.gameOver && state.phase === 'ROLL' && isLocalTurn;
       rollBtn.disabled = !canRoll;
       rollBtn.setAttribute('aria-disabled', String(!canRoll));
     }
@@ -971,16 +1669,16 @@
       } else if (moves.length === 0) {
         movesPrompt.textContent = 'No valid moves available for this roll.';
       } else {
-        movesPrompt.innerHTML = player.type === 'human'
-          ? `Select a move with keys <kbd>1</kbd>–<kbd>4</kbd> or click below:`
-          : `${player.name} (AI) is deciding...`;
+        movesPrompt.innerHTML = isLocalTurn
+          ? `Select a move with keys <kbd>1</kbd>–<kbd>4</kbd>, click below, or press <kbd>Enter</kbd> on its square:`
+          : `${player.name} is deciding...`;
 
         moves.forEach(function (m) {
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'move-btn';
           btn.dataset.tokenIndex = String(m.tokenIndex);
-          btn.disabled = player.type !== 'human';
+          btn.disabled = !isLocalTurn;
 
           let badgeHtml = '';
           if (m.isCapture) {
@@ -1027,6 +1725,15 @@
         cell.className = 'cell';
         cell.dataset.row = String(r);
         cell.dataset.col = String(c);
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('tabindex', '-1');
+        cell.setAttribute('aria-label', `Row ${r + 1}, Column ${c + 1}`);
+
+        // Click on 15x15 board cell to position cursor and inspect or move piece
+        cell.addEventListener('click', function () {
+          updateBoardCursor(r, c, false);
+          handleBoardCursorEnter();
+        });
 
         // Determine static classification
         // Red Yard: rows 0..5, cols 0..5
@@ -1104,6 +1811,12 @@
         }
       });
     }
+
+    // Set initial active highlight on the default cursor cell
+    const initCell = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
+    if (initCell) {
+      initCell.classList.add('board-cursor-active');
+    }
   }
 
   /**
@@ -1171,6 +1884,13 @@
         cell.appendChild(stackEl);
       }
     });
+
+    // Ensure active cursor highlight and live status bar are updated
+    const activeCell = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
+    if (activeCell) {
+      activeCell.classList.add('board-cursor-active');
+    }
+    updateBoardCursorBar();
   }
 
   /**
@@ -1447,15 +2167,68 @@
         announce('Game log cleared.', 'polite', false);
       });
     }
+
+    // Multiplayer button and input bindings
+    const openMpBtn = document.getElementById('open-mp-btn');
+    if (openMpBtn) {
+      openMpBtn.addEventListener('click', focusMultiplayerPanel);
+    }
+
+    const hostMpBtn = document.getElementById('host-mp-btn');
+    if (hostMpBtn) {
+      hostMpBtn.addEventListener('click', handleHostMultiplayer);
+    }
+
+    const copyLinkBtn = document.getElementById('copy-link-btn');
+    if (copyLinkBtn) {
+      copyLinkBtn.addEventListener('click', copyMultiplayerInviteLink);
+    }
+
+    const joinMpBtn = document.getElementById('join-mp-btn');
+    if (joinMpBtn) {
+      joinMpBtn.addEventListener('click', handleJoinMultiplayerFromInput);
+    }
+
+    const mpJoinCodeInput = document.getElementById('mp-join-code');
+    if (mpJoinCodeInput) {
+      mpJoinCodeInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleJoinMultiplayerFromInput();
+        }
+      });
+    }
+
+    const leaveMpBtn = document.getElementById('leave-mp-btn');
+    if (leaveMpBtn) {
+      leaveMpBtn.addEventListener('click', handleLeaveMultiplayer);
+    }
   }
 
   /**
    * Initializes the Application on DOMContentLoaded
    */
   function initApp() {
+    if (typeof window !== 'undefined') {
+      LudoEngine = window.LudoEngine || LudoEngine;
+      LudoAudio = window.LudoAudio || LudoAudio;
+      LudoMultiplayer = window.LudoMultiplayer || LudoMultiplayer;
+    }
+
     initVisualBoardGrid();
     bindEvents();
+    initMultiplayerModule();
     initGame();
+
+    // Check URL for ?room= parameter to auto-join
+    if (LudoMultiplayer && typeof LudoMultiplayer.getRoomFromUrl === 'function') {
+      const roomParam = LudoMultiplayer.getRoomFromUrl();
+      if (roomParam) {
+        setTimeout(function () {
+          handleJoinMultiplayer(roomParam);
+        }, 300);
+      }
+    }
   }
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
@@ -1473,6 +2246,14 @@
     handleHumanRoll,
     handleHumanMove,
     handleKeyDown,
+    updateBoardCursor,
+    stepTrackCursor,
+    handleBoardCursorEnter,
+    handleHostMultiplayer,
+    handleJoinMultiplayer,
+    handleLeaveMultiplayer,
+    copyMultiplayerInviteLink,
+    focusMultiplayerPanel,
     announce,
     readRecentLog,
     toggleMute,

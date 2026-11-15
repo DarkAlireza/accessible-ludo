@@ -24,6 +24,10 @@
       </div>
 
       <div class="header-actions">
+        <button type="button" id="open-mp-btn" class="header-btn" title="Multiplayer Lobby &amp; Share Link (P)">
+          <span class="btn-icon" aria-hidden="true">🌐</span>
+          <span>Multiplayer <kbd>(P)</kbd></span>
+        </button>
         <button type="button" id="theme-toggle-btn" class="header-btn" aria-pressed="false" title="Switch Theme (Dark/Light)">
           <span class="btn-icon" aria-hidden="true">🌓</span>
           <span id="theme-btn-label">Theme: Dark</span>
@@ -81,6 +85,60 @@
 
   <!-- Main Landmark Layout -->
   <main id="main-content" class="main-content" role="main">
+    <!-- Dedicated Multiplayer Lobby & Share Link Card/Banner -->
+    <section id="multiplayer-panel" class="multiplayer-card" aria-labelledby="mp-heading">
+      <div class="mp-header-row">
+        <div class="mp-title-group">
+          <h2 id="mp-heading" class="section-heading">
+            <span class="btn-icon" aria-hidden="true">🌐</span> Online Multiplayer / Shareable Room Link
+          </h2>
+          <span id="mp-status-text" class="badge badge-mp-status">Offline / Local Mode</span>
+        </div>
+        <div class="mp-header-actions">
+          <button type="button" id="host-mp-btn" class="primary-btn mp-btn">
+            <span class="btn-icon" aria-hidden="true">🔗</span>
+            <span>Host &amp; Create Shareable Link</span>
+          </button>
+          <button type="button" id="leave-mp-btn" class="secondary-btn mp-btn hidden">
+            <span>Leave Multiplayer</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="mp-body-grid">
+        <div class="mp-invite-group">
+          <label for="mp-invite-url" class="mp-label"><strong>Shareable Invite Link:</strong></label>
+          <div class="mp-input-row">
+            <input type="text" id="mp-invite-url" class="mp-input" readonly placeholder="Click 'Host &amp; Create Shareable Link' to generate invite URL" aria-label="Shareable Invite Link URL">
+            <button type="button" id="copy-link-btn" class="secondary-btn" title="Copy Invite Link (Key C)">
+              <span class="btn-icon" aria-hidden="true">📋</span>
+              <span>Copy Link <kbd>(C)</kbd></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="mp-join-group">
+          <label for="mp-join-code" class="mp-label"><strong>Or Join by Room Code:</strong></label>
+          <div class="mp-input-row">
+            <input type="text" id="mp-join-code" class="mp-input" placeholder="e.g. ludo-abc123" aria-label="Enter Room Code">
+            <button type="button" id="join-mp-btn" class="secondary-btn">Join Room</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mp-footer-row">
+        <div class="mp-players-container">
+          <span class="mp-players-label"><strong>Seat Assignments &amp; Connected Players:</strong></span>
+          <div id="mp-players-list" class="mp-players-list" aria-live="polite">
+            <span class="mp-player-tag tag-red">Red: Human (Host)</span>
+            <span class="mp-player-tag tag-green">Green: AI</span>
+            <span class="mp-player-tag tag-yellow">Yellow: AI</span>
+            <span class="mp-player-tag tag-blue">Blue: AI</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div class="game-layout-grid">
 
       <!-- Left Column: Primary Turn & Action Center + Board Explorer -->
@@ -150,7 +208,10 @@
         <!-- Visual 15x15 Ludo Board Section -->
         <section id="visual-board-section" class="board-card" aria-labelledby="board-heading">
           <div class="card-header-row">
-            <h2 id="board-heading" class="section-heading">Visual Ludo Board (15×15)</h2>
+            <div>
+              <h2 id="board-heading" class="section-heading">Interactive 15×15 Ludo Board</h2>
+              <p class="board-help-text">Use <kbd>Arrow</kbd> keys to navigate 15×15 squares, <kbd>[</kbd> / <kbd>]</kbd> to step track, <kbd>Enter</kbd> to inspect or move piece.</p>
+            </div>
             <div class="board-legend">
               <span class="legend-item"><span class="legend-swatch swatch-safe" aria-hidden="true">★</span> Safe Square</span>
               <span class="legend-item"><span class="legend-swatch swatch-red" aria-hidden="true">●</span> Red (R)</span>
@@ -159,9 +220,16 @@
               <span class="legend-item"><span class="legend-swatch swatch-blue" aria-hidden="true">▲</span> Blue (B)</span>
             </div>
           </div>
-          <!-- Visual grid rendered for sighted/low-vision players; hidden from screen readers who use the Board Explorer -->
+
+          <!-- Live Board Cursor Status Bar -->
+          <div id="board-cursor-bar" class="board-cursor-bar" role="status" aria-live="polite" aria-atomic="true">
+            <span class="cursor-bar-title">Board Cursor:</span>
+            <span id="board-cursor-text" class="cursor-bar-text">Row 7, Col 2 — Track 1 (Red Start, Safe) — Occupied by: Red Token 1</span>
+          </div>
+
+          <!-- Interactive visual grid with role="grid" tabindex="0" for direct 15x15 board arrow-key navigation -->
           <div class="board-container">
-            <div id="visual-board" class="ludo-grid" aria-hidden="true">
+            <div id="visual-board" class="ludo-grid" role="grid" aria-label="Interactive 15 by 15 Ludo Board. Use Arrow keys to navigate squares, Enter to inspect or move piece." tabindex="0">
               <!-- 225 grid cells generated via JS -->
             </div>
           </div>
@@ -245,6 +313,11 @@
             <li><kbd>Space</kbd> / <kbd>R</kbd> : Roll Dice</li>
             <li><kbd>1</kbd>–<kbd>4</kbd> : Select Move for Token 1 to 4</li>
             <li><kbd>Shift+1</kbd>–<kbd>4</kbd> : Inspect Token 1 to 4</li>
+            <li><kbd>Arrow Keys</kbd> : Navigate 15×15 Board</li>
+            <li><kbd>[</kbd> / <kbd>]</kbd> : Step Backward / Forward on Track</li>
+            <li><kbd>Enter</kbd> : Inspect or Move at Board Cursor</li>
+            <li><kbd>P</kbd> : Multiplayer / Host &amp; Share Link</li>
+            <li><kbd>C</kbd> : Copy Multiplayer Invite Link</li>
             <li><kbd>S</kbd> : Game Status Summary</li>
             <li><kbd>T</kbd> : My Tokens &amp; Threat Analysis</li>
             <li><kbd>O</kbd> : Opponents Status</li>
@@ -400,6 +473,31 @@
                 <td>Announces current position, steps to Home Goal, and nearby threats for that token.</td>
               </tr>
               <tr>
+                <td><kbd>Arrow Keys</kbd></td>
+                <td>15×15 Board Navigation</td>
+                <td>Directly navigates squares on the 15×15 board. Plays wooden tap for empty squares and piece chime for occupied squares.</td>
+              </tr>
+              <tr>
+                <td><kbd>[</kbd> / <kbd>]</kbd></td>
+                <td>Track Step Backward / Forward</td>
+                <td>Steps board cursor backward or forward sequentially along the 52-square main track.</td>
+              </tr>
+              <tr>
+                <td><kbd>Enter</kbd></td>
+                <td>Inspect / Move at Cursor</td>
+                <td>Inspects square details, or if in Move phase and square has your movable token, executes the move directly.</td>
+              </tr>
+              <tr>
+                <td><kbd>P</kbd></td>
+                <td>Multiplayer / Share Link</td>
+                <td>Focuses the Multiplayer Lobby to host a match or share an invite link.</td>
+              </tr>
+              <tr>
+                <td><kbd>C</kbd></td>
+                <td>Copy Invite Link</td>
+                <td>Copies the shareable multiplayer room URL directly to your clipboard.</td>
+              </tr>
+              <tr>
                 <td><kbd>S</kbd></td>
                 <td>Game Status</td>
                 <td>Announces current turn number, active player, phase, and overall standing.</td>
@@ -478,9 +576,11 @@
     </div>
   </dialog>
 
-  <!-- Script dependencies: Engine -> Audio -> App -->
+  <!-- Script dependencies: PeerJS CDN -> Engine -> Audio -> Multiplayer -> App -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="engine.js"></script>
   <script src="audio.js"></script>
+  <script src="multiplayer.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

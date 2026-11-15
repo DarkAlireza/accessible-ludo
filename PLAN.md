@@ -1,67 +1,76 @@
-# Blind Screen-Reader Accessible Web Ludo — Implementation Plan
+# Blind Screen-Reader Accessible Web Ludo — Implementation Plan (Phase 2 Update)
 
-## 1. Overview & Accessibility Philosophy
-This project implements a complete, standalone web-based **Ludo** game engineered specifically for **blind and screen-reader users** (NVDA, JAWS, VoiceOver, TalkBack) while also offering a high-contrast visual board for sighted/low-vision players.
+## 1. Phase 2 Enhancements Overview
+1. **Direct 15×15 Board Arrow-Key Navigation**:
+   - Players can navigate the 15×15 Ludo board itself directly using the `Up`, `Down`, `Left`, and `Right` arrow keys (`cursorRow: 0..14`, `cursorCol: 0..14`), as well as `[` / `]` to step sequentially along the 52-square main track.
+   - Pressing `Enter` on the currently highlighted board square inspects it in detail—or, during the `MOVE` phase when the square contains one of the current human player's movable tokens, executes that token's move directly from the board cursor!
+2. **Distinct Audio Earcons for Empty vs. Occupied Squares (`audio.js`)**:
+   - Every arrow-key step on the board triggers `LudoAudio.playCursorMove(cellInfo)`:
+     - **Empty Squares**: Plays a crisp, hollow wooden/bamboo tap sound (with subtle pitch mapping by row/column and a gentle overtone if the empty square is a Safe Star or Home Goal).
+     - **Occupied Squares (contains piece(s))**: Plays a distinct, resonant harmonic bell/plucked chord using the occupying piece's player signature frequency and waveform (Red, Green, Yellow, Blue)—or a stacked multi-note arpeggio if multiple pieces occupy that square—so blind players immediately distinguish empty squares from occupied squares by ear.
+3. **High-Contrast Visual Board Cursor Highlight (`styles.css` & `app.js`)**:
+   - The active board square at `(cursorRow, cursorCol)` displays a prominent `.board-cursor-active` highlight: a 4px high-contrast glowing gold/cyan outline, animated corner indicator, and elevated z-index that remains unmistakable over both empty and occupied squares in Dark and Light themes.
+4. **Shareable Link Online Multiplayer (`multiplayer.js` + `index.html` + `app.js`)**:
+   - Uses **PeerJS (WebRTC DataChannels)** (with `BroadcastChannel` fallback for same-machine multi-tab play) so it works 100% serverless on GitHub Pages.
+   - **Host Flow**: Clicking **"Host Multiplayer / Share Link"** creates a room (`?room=<id>`), copies the invite link to the clipboard, and allows the host to start the match once friends join (with remaining seats configurable as AI or Off).
+   - **Join Flow**: Opening a shared link (`https://darkalireza.github.io/accessible-ludo/?room=<id>`) automatically connects to the host, claims an available player color seat, announces the assigned color to the screen reader, and synchronizes all dice rolls, moves, audio earcons, and ARIA announcements in real time.
 
-## 2. Architecture & File Ownership
+---
 
-| File | Owner Agent | Responsibility | Global Export |
-| :--- | :--- | :--- | :--- |
-| `engine.js` | `engine` | Pure Ludo game state machine, board geometry, move validation, capture/safe rules, threat analysis, AI decision engine, and screen-reader description helpers. | `window.LudoEngine` (and `module.exports` for Node tests) |
-| `tests.js` | `engine` | Automated Node.js test suite verifying all Ludo rules (yard exit on 6, safe squares, captures, triple-6 penalty, home stretch exact roll, win detection, AI moves). | CLI test runner (`node tests.js`) |
-| `audio.js` | `audio` | Web Audio API procedural sound synthesizer (earcons for dice, steps, capture, safe square, home, win, error) + optional `speechSynthesis` self-voicing wrapper. | `window.LudoAudio` |
-| `index.html` | `ui` | Semantic HTML5 structure, ARIA landmarks, dual live regions (`polite` & `assertive`), setup dialog, command toolbar, tactical move list, board explorer, and help modal. | DOM structure |
-| `styles.css` | `ui` | WCAG AAA high-contrast styling, visible focus indicators, responsive 15×15 visual Ludo grid, and `.sr-only` utilities. | Stylesheet |
-| `app.js` | `ui` | UI controller binding `LudoEngine` and `LudoAudio` to DOM, managing keyboard shortcuts, focus management, AI turn timers, and board explorer navigation. | `window.LudoApp` |
+## 2. Phase 2 File Ownership & Module Contracts
 
-## 3. Shared Module Contracts
+| File | Owner Agent | Responsibility |
+| :--- | :--- | :--- |
+| `engine.js` & `tests.js` | `engine-2` | Add `getCellInfo(state, row, col)` to `LudoEngine` returning complete metadata for any `(row, col)` on the 15×15 grid (`type`, `label`, `trackIndex`, `isSafe`, `isOccupied`, `tokens`, `threats`, `speechSummary`), plus unit tests in `tests.js`. |
+| `audio.js` | `audio-2` | Add `playCursorMove(cellInfo)` (distinct sounds for empty vs. occupied squares with piece color timbres) and `playMultiplayerEvent(type)` (`join`, `leave`, `linkCopied`) to `LudoAudio`. |
+| `multiplayer.js` | `multiplayer` | Implement `window.LudoMultiplayer` managing WebRTC PeerJS connections + `BroadcastChannel` fallback, URL `?room=` parsing, invite link generation, lobby seat assignment, and real-time action/state synchronization. |
+| `index.html`, `styles.css`, `app.js` | `ui-2` | Integrate 2D arrow-key board cursor navigation, `.board-cursor-active` visual highlight, `Enter`-to-move on cursor, and the accessible Multiplayer Lobby / Share Link UI. |
+| Verification & GitHub Push | `verifier-2` | Run `node tests.js`, syntax-check all files, verify full integration across `engine.js`, `audio.js`, `multiplayer.js`, `index.html`, `styles.css`, `app.js`, and push to GitHub Pages. |
 
-### 3.1 `window.LudoEngine` (`engine.js`)
-- **Constants**:
-  - `COLORS`: `['Red', 'Green', 'Yellow', 'Blue']`
-  - `START_INDICES`: `[0, 13, 26, 39]` (0-based indices on the 52-square main track)
-  - `SAFE_INDICES`: `[0, 8, 13, 21, 26, 34, 39, 47]` (4 start squares + 4 star squares)
-- **Token Position Representation (`relativeStep`)**:
-  - `-1`: In Yard (Base). Requires rolling a `6` to enter the track at `relativeStep = 0`.
-  - `0..50`: On the 52-square main track. Absolute track index (0..51) is `(playerIndex * 13 + relativeStep) % 52`. Human-readable track square number is `absIndex + 1` (1..52).
-  - `51..55`: In the player's colored Home Stretch (squares 1 to 5).
-  - `56`: In Home Goal (finished). Requires an exact roll.
-- **Core Methods**:
-  - `createGame(playerConfigs)`: `playerConfigs` is an array of 4 objects `[{ name: 'Red', type: 'human'|'ai'|'none' }, ...]`. Defaults to Red=human, Green=ai, Yellow=ai, Blue=ai if omitted. Returns initial `state`.
-  - `rollDice(state, forcedValue?)`: Rolls 1–6 (or uses `forcedValue` for tests), handles consecutive 6s (three 6s in a row forfeits turn and advances to next player), computes `validMoves`, and updates `state.phase` (`'MOVE'` if validMoves.length > 0, or advances turn and sets `'ROLL'` if no valid moves). Returns `{ state, roll, validMoves, tripleSix, autoPassed, message }`.
-  - `getValidMoves(state, playerIndex, diceValue)`: Returns array of move objects:
-    ```js
-    {
-      tokenIndex: 0..3, // 0-based index of token (displayed to user as Token 1..4)
-      fromStep: number,
-      toStep: number,
-      fromDesc: string,
-      toDesc: string,
-      isExitYard: boolean,
-      isCapture: boolean,
-      capturedTokens: [{ playerIndex, tokenIndex, color }],
-      isSafeDestination: boolean,
-      isHomeEntry: boolean,
-      isHomeStretch: boolean,
-      threatsBefore: string[],
-      threatsAfter: string[],
-      summary: string // Full screen-reader friendly label for the move button
-    }
-    ```
-  - `applyMove(state, tokenIndex)`: Executes the chosen valid move for `state.currentPlayer`, updates positions, sends any captured opponent tokens to `-1` (Yard), awards bonus roll on `6`, capture, or reaching Home (`56`), checks for player win / game over (`state.phase = 'GAME_OVER'`), or advances to the next active player (`state.phase = 'ROLL'`). Returns `{ state, moveResult, bonusTurn, gameOver, winner, message }`.
-  - `chooseAIMove(state)`: Selects and returns the best `tokenIndex` from `state.validMoves` using tactical heuristics (capture > reach home > exit yard > land on safe square > escape threat > advance furthest token).
-  - `getTokenStatusText(state, playerIndex, tokenIndex)`: Detailed human-readable description of a single token including position, steps to Home, and nearby threats.
-  - `getPlayerSummaryText(state, playerIndex)`: Summary of all 4 tokens for a given player.
-  - `getAllOpponentsSummaryText(state, currentPlayerIndex)`: Summary of all active opponent players' tokens and positions.
-  - `getGameStatusText(state)`: Overall game summary (current turn, phase, last roll, rankings, tokens home per active player).
-  - `getBoardExplorerItems(state)`: Ordered list of board locations (`Yard`s, `Track 1..52`, `Home Stretch`es, `Home Goal`s) with metadata `{ id, label, tokens, isOccupied, isSafe, coords }` for the keyboard Board Explorer.
+---
 
-### 3.2 `window.LudoAudio` (`audio.js`)
-- `init()`: Initializes/resumes `AudioContext` on user interaction.
-- `playDiceRoll(value)`: Plays tactile dice roll sound followed by pitch cue for `value` (1–6).
-- `playMove(playerIndex, moveResult)`: Plays appropriate earcon based on `moveResult` (`isExitYard`, `isCapture`, `isHomeEntry`, `isSafeDestination`, or standard step).
-- `playTurnStart(playerIndex, isHuman)`: Plays distinct turn notification chime.
-- `playWin()`: Plays victory fanfare.
-- `playError()`: Plays gentle boundary/invalid action tone.
-- `setMuted(bool)` / `isMuted()`: Controls sound effect mute state.
-- `setSelfVoicing(bool)` / `isSelfVoicing()` / `speak(text, interrupt)`: Optional `window.speechSynthesis` integration.
+## 3. Detailed Interface Specifications
+
+### 3.1 `LudoEngine.getCellInfo(state, row, col)` (`engine.js`)
+Returns an object for any `row` (`0..14`) and `col` (`0..14`):
+```js
+{
+  row: 0..14,
+  col: 0..14,
+  type: 'track' | 'homeStretch' | 'homeGoal' | 'yardNest' | 'yardArea' | 'centerArea',
+  label: string,         // e.g. "Track 1 (Red Start, Safe)", "Red Yard Nest 1", "Green Home Stretch 3"
+  trackIndex: number|null, // 0..51 if on main track, else null
+  playerIndex: number|null, // 0..3 if owned by a player color (yard, stretch, goal, start)
+  isSafe: boolean,
+  isOccupied: boolean,
+  tokens: [              // All tokens currently at (row, col)
+    { playerIndex, tokenIndex, color, step, label: "Red Token 1" }
+  ],
+  threats: string[],     // Active opponent threats if this is a track square
+  speechSummary: string  // Complete screen-reader announcement for this square
+}
+```
+
+### 3.2 `LudoAudio.playCursorMove(cellInfo)` (`audio.js`)
+- When `cellInfo.isOccupied === true`:
+  - Plays a resonant, melodic bell/chord tone unmistakable from an empty square.
+  - Uses the `PLAYER_SIGNATURES[token.playerIndex]` base frequency (in a bright octave) for each token on the square (if multiple tokens are stacked, plays a fast 50ms staggered arpeggio of their respective color pitches!).
+- When `cellInfo.isOccupied === false`:
+  - Plays a short, dry, low-mid wooden tap (`playNoiseBurst` + short filtered sine/triangle tick) whose pitch shifts subtly with `row`/`col` so the player feels movement across empty squares.
+  - If `cellInfo.isSafe` (e.g. Safe Star or Start square) or `type === 'homeGoal'`, adds a subtle high overtone tick so empty special squares are also identifiable.
+- `LudoAudio.playMultiplayerEvent(eventType)`:
+  - `'join'`: Welcoming ascending two-note chime.
+  - `'leave'`: Descending two-note chime.
+  - `'linkCopied'`: Crisp confirmation ping.
+
+### 3.3 `window.LudoMultiplayer` (`multiplayer.js`)
+- `init(callbacks)`: Accepts callbacks `{ onStateSync, onRemoteRoll, onRemoteMove, onLobbyUpdate, onConnectionStatus, onAnnouncement }`.
+- `hostRoom(hostName)`: Generates room ID, initializes PeerJS host (`window.Peer` if available) AND `BroadcastChannel('ludo-room-' + roomId)` fallback, updates browser URL `?room=<roomId>` via `history.replaceState`, assigns host to seat 0 (Red), and returns `{ roomId, inviteUrl }`.
+- `joinRoom(roomId, guestName)`: Connects to host room via PeerJS and/or `BroadcastChannel`, requests seat assignment (`1..3`), and syncs game state.
+- `getRoomFromUrl()`: Parses `?room=` from `window.location.search`.
+- `getInviteUrl()`: Returns full shareable URL containing `?room=<roomId>`.
+- `copyInviteLink()`: Copies `getInviteUrl()` to clipboard (`navigator.clipboard.writeText` with textarea fallback).
+- `isMultiplayer()` / `isHost()` / `getLocalPlayerIndex()` / `getRoomId()` / `getConnectedPlayers()`.
+- `sendAction(actionObj)`: If client, sends `{ type: 'ROLL' }` or `{ type: 'MOVE', tokenIndex }` to host; if host, processes and broadcasts `{ type: 'STATE_UPDATE', state, soundEvent, announcement, moveResult, roll, movingPlayer }` to all connected peers.
+- `broadcastState(payload)`: Host sends state/event payload to all peers.
+- `leaveRoom()`: Closes connections, removes `?room=` from URL, and returns to offline mode.
