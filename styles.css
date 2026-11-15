@@ -857,21 +857,69 @@ kbd {
 
 .board-container {
   width: 100%;
-  max-width: 680px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
+.board-frame {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  grid-template-rows: 24px 1fr;
+  width: 100%;
+  background-color: var(--surface-2);
+  border: 3px solid var(--border-strong);
+  border-radius: var(--border-radius-md);
+  padding: 6px;
+  box-shadow: var(--shadow-card);
+}
+
+.board-coord-corner {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.board-coord-cols {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  align-items: center;
+  justify-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.board-coord-rows {
+  grid-column: 1;
+  grid-row: 2;
+  display: grid;
+  grid-template-rows: repeat(15, 1fr);
+  align-items: center;
+  justify-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  user-select: none;
+}
+
 .ludo-grid {
+  grid-column: 2;
+  grid-row: 2;
   display: grid;
   grid-template-columns: repeat(15, 1fr);
   grid-template-rows: repeat(15, 1fr);
   width: 100%;
   aspect-ratio: 1;
   background-color: var(--surface-3);
-  border: 4px solid var(--border-strong);
-  border-radius: var(--border-radius-md);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--border-radius-sm);
+  position: relative;
   overflow: hidden;
-  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.4);
 }
 
 .board-cursor-bar {
@@ -902,9 +950,80 @@ kbd {
   line-height: 1.4;
 }
 
+/* Authentic 6x6 Corner Yard Containers */
+.ludo-yard-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8%;
+  border: 2px solid rgba(0, 0, 0, 0.4);
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ludo-yard-box.yard-red {
+  background-color: var(--red-bg);
+  border-color: var(--red-border);
+}
+.ludo-yard-box.yard-green {
+  background-color: var(--green-bg);
+  border-color: var(--green-border);
+}
+.ludo-yard-box.yard-yellow {
+  background-color: var(--yellow-bg);
+  border-color: var(--yellow-border);
+}
+.ludo-yard-box.yard-blue {
+  background-color: var(--blue-bg);
+  border-color: var(--blue-border);
+}
+
+.yard-inner-white {
+  width: 100%;
+  height: 100%;
+  background-color: #ffffff;
+  border-radius: var(--border-radius-md);
+  border: 3px solid rgba(0, 0, 0, 0.35);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  padding: 12%;
+  gap: 16%;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3), inset 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+
+/* Authentic 3x3 Center Home Container with 4 diagonal colored triangles */
+.ludo-center-home {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  border: 2px solid var(--border-strong);
+  overflow: hidden;
+  background-color: var(--surface-1);
+}
+
+.center-triangles-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.center-triangles-svg .triangle-red { fill: var(--red-color); opacity: 0.88; }
+.center-triangles-svg .triangle-green { fill: var(--green-color); opacity: 0.88; }
+.center-triangles-svg .triangle-yellow { fill: var(--yellow-color); opacity: 0.88; }
+.center-triangles-svg .triangle-blue { fill: var(--blue-color); opacity: 0.88; }
+
+/* Real Playable Squares (.cell) */
 .cell {
   position: relative;
-  border: 1px solid rgba(120, 140, 170, 0.35);
+  border: 1px solid rgba(120, 140, 170, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -913,6 +1032,13 @@ kbd {
   user-select: none;
   transition: transform var(--transition-fast), outline-color var(--transition-fast);
   cursor: pointer;
+  box-sizing: border-box;
+}
+
+.cell:focus, .cell:focus-visible {
+  outline: 4px solid var(--focus-ring) !important;
+  outline-offset: -2px !important;
+  z-index: 26 !important;
 }
 
 /* 2D Board Cursor Active Highlight - 4px glowing ring + pulsating corner marker */
@@ -937,6 +1063,7 @@ kbd {
   box-shadow: 0 0 6px var(--focus-ring-alt);
   pointer-events: none;
   animation: pulse-board-cursor 1.2s infinite ease-in-out;
+  z-index: 30;
 }
 
 @keyframes pulse-board-cursor {
@@ -950,15 +1077,67 @@ kbd {
   }
 }
 
-/* Yards (Base) */
-.cell.yard-red { background-color: var(--red-bg); }
-.cell.yard-green { background-color: var(--green-bg); }
-.cell.yard-yellow { background-color: var(--yellow-bg); }
-.cell.yard-blue { background-color: var(--blue-bg); }
+/* Subtle corner coordinate label */
+.cell-coord {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  opacity: 0.7;
+  pointer-events: none;
+  line-height: 1;
+  z-index: 2;
+}
+
+/* Yard Token Slot Circles */
+.cell.yard-slot {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
+  background-color: #f7f9fa;
+  transition: transform var(--transition-fast), outline var(--transition-fast);
+}
+
+.cell.yard-slot-red {
+  background-color: #ffebee;
+  border-color: var(--red-color);
+}
+.cell.yard-slot-green {
+  background-color: #e8f5e9;
+  border-color: var(--green-color);
+}
+.cell.yard-slot-yellow {
+  background-color: #fffde7;
+  border-color: var(--yellow-color);
+}
+.cell.yard-slot-blue {
+  background-color: #e3f2fd;
+  border-color: var(--blue-color);
+}
+
+.cell.yard-slot .cell-coord {
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.52rem;
+  color: #4a5568;
+  opacity: 0.85;
+}
 
 /* Main Track */
 .cell.track-cell {
   background-color: var(--surface-1);
+  border: 1px solid rgba(120, 140, 170, 0.35);
 }
 
 /* Safe Squares */
@@ -966,12 +1145,11 @@ kbd {
   background-color: var(--surface-2);
 }
 
-.cell.safe-square::before {
-  content: "★";
+.safe-star-icon {
   color: var(--safe-star);
   font-size: 0.95rem;
-  position: absolute;
-  opacity: 0.85;
+  line-height: 1;
+  z-index: 1;
 }
 
 /* Start Squares */
@@ -992,31 +1170,66 @@ kbd {
   border: 2px solid var(--blue-color);
 }
 
+/* Entry Turn Arrows */
+.entry-arrow {
+  font-size: 1.1rem;
+  font-weight: 900;
+  line-height: 1;
+  z-index: 1;
+}
+
+.entry-red .entry-arrow { color: var(--red-color); }
+.entry-green .entry-arrow { color: var(--green-color); }
+.entry-yellow .entry-arrow { color: var(--yellow-color); }
+.entry-blue .entry-arrow { color: var(--blue-color); }
+
 /* Home Stretches */
+.cell.stretch-cell {
+  position: relative;
+}
+
 .cell.stretch-red { background-color: var(--red-bg); border-color: var(--red-border); }
 .cell.stretch-green { background-color: var(--green-bg); border-color: var(--green-border); }
 .cell.stretch-yellow { background-color: var(--yellow-bg); border-color: var(--yellow-border); }
 .cell.stretch-blue { background-color: var(--blue-bg); border-color: var(--blue-border); }
 
-/* Center Home Goal (3x3 center) */
-.cell.goal-cell {
-  background-color: var(--surface-2);
-  border: none;
+.stretch-num-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  opacity: 0.8;
+  z-index: 1;
 }
-.cell.goal-red { background-color: var(--red-color); color: #ffffff; }
-.cell.goal-green { background-color: var(--green-color); color: #ffffff; }
-.cell.goal-yellow { background-color: var(--yellow-color); color: #000000; }
-.cell.goal-blue { background-color: var(--blue-color); color: #ffffff; }
 
-/* Yard Token Nest circles */
-.yard-nest {
-  width: 70%;
-  height: 70%;
-  border-radius: 50%;
-  border: 2px dashed rgba(255, 255, 255, 0.4);
+/* Center Home Goal Cells (Over Triangles) */
+.cell.goal-cell {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: var(--border-radius-sm);
+  margin: 3px;
+  background-color: rgba(255, 255, 255, 0.35);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.cell.goal-cell .goal-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+  z-index: 1;
+}
+
+.cell.goal-cell .cell-coord {
+  top: 1px;
+  left: 2px;
+  color: #000000;
+  font-weight: 900;
+  opacity: 0.85;
 }
 
 /* Tokens Rendering with distinct shapes and initials */

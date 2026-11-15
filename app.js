@@ -46,8 +46,19 @@
   }
 
   /**
+   * Helper to get standard alphanumeric coordinate name (e.g. 'A7', 'B7')
+   */
+  function getSquareCoord(row, col) {
+    if (LudoEngine && typeof LudoEngine.getCoordName === 'function') {
+      return LudoEngine.getCoordName(row, col);
+    }
+    return String.fromCharCode(65 + col) + (row + 1);
+  }
+
+  /**
    * Safe Screen Reader Announcement Helper
-   * Updates polite or assertive live regions, speaks via self-voicing if enabled,
+   * Queues polite game updates into #sr-polite log without wiping prior speech,
+   * updates #sr-assertive for immediate inspections/moves, speaks via self-voicing if enabled,
    * and appends to the chronological activity log.
    *
    * @param {string} text
@@ -60,14 +71,29 @@
     if (addToLog === undefined) addToLog = true;
 
     if (typeof document !== 'undefined') {
-      const regionId = priority === 'assertive' ? 'sr-assertive' : 'sr-polite';
-      const region = document.getElementById(regionId);
-      if (region) {
-        // Clear briefly then set so repeated identical texts re-trigger screen reader speech
-        region.textContent = '';
-        setTimeout(function () {
-          region.textContent = text;
-        }, 50);
+      // 1. For polite updates (or whenever recorded in activity log), append child to #sr-polite log
+      if (priority === 'polite' || addToLog === true) {
+        const politeRegion = document.getElementById('sr-polite');
+        if (politeRegion) {
+          const item = document.createElement('div');
+          item.textContent = text;
+          politeRegion.appendChild(item);
+          // Keep live log lean by pruning oldest nodes above 25
+          while (politeRegion.children.length > 25) {
+            politeRegion.removeChild(politeRegion.firstChild);
+          }
+        }
+      }
+
+      // 2. For assertive feedback (immediate inspections, errors, or square navigation)
+      if (priority === 'assertive') {
+        const assertiveRegion = document.getElementById('sr-assertive');
+        if (assertiveRegion) {
+          assertiveRegion.textContent = '';
+          requestAnimationFrame(function () {
+            assertiveRegion.textContent = text;
+          });
+        }
       }
 
       if (addToLog) {
@@ -225,7 +251,7 @@
 
   /**
    * Updates the 15x15 visual board cursor position, plays sound cue,
-   * updates status bar, and announces square details.
+   * updates status bar, focuses active cell, and announces square details.
    */
   function updateBoardCursor(row, col, announceMove) {
     if (announceMove === undefined) announceMove = true;
@@ -235,23 +261,31 @@
     if (typeof document === 'undefined') return;
 
     const grid = document.getElementById('visual-board');
+    let newActive = null;
     if (grid) {
       const prevActive = grid.querySelector('.board-cursor-active');
       if (prevActive) {
         prevActive.classList.remove('board-cursor-active');
+        prevActive.setAttribute('tabindex', '-1');
       }
-      const newActive = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
+      newActive = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
       if (newActive) {
         newActive.classList.add('board-cursor-active');
+        newActive.setAttribute('tabindex', '0');
       }
     }
 
     if (!state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
     const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
 
+    if (newActive && cellInfo && cellInfo.speechSummary) {
+      newActive.setAttribute('aria-label', cellInfo.speechSummary);
+    }
+
     const cursorTextEl = document.getElementById('board-cursor-text');
     if (cursorTextEl) {
-      let desc = `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — ${cellInfo.label}`;
+      const coordPrefix = cellInfo.coord ? `${cellInfo.coord} — ` : '';
+      let desc = `${coordPrefix}${cellInfo.label}`;
       if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
         desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
       } else {
@@ -261,10 +295,23 @@
     }
 
     if (announceMove) {
+      if (newActive && typeof newActive.focus === 'function') {
+        newActive.focus({ preventScroll: true });
+      }
+
       if (LudoAudio && typeof LudoAudio.playCursorMove === 'function') {
         LudoAudio.playCursorMove(cellInfo);
       }
-      announce(cellInfo.speechSummary, 'polite', false);
+
+      const cursorSr = document.getElementById('sr-board-cursor');
+      if (cursorSr) {
+        cursorSr.textContent = '';
+        requestAnimationFrame(function () {
+          cursorSr.textContent = cellInfo.speechSummary;
+        });
+      }
+
+      announce(cellInfo.speechSummary, 'assertive', false);
     }
   }
 
@@ -325,7 +372,8 @@
     if (!cursorTextEl || !state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
 
     const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
-    let desc = `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — ${cellInfo.label}`;
+    const coordPrefix = cellInfo.coord ? `${cellInfo.coord} — ` : `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — `;
+    let desc = `${coordPrefix}${cellInfo.label}`;
     if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
       desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
     } else {
@@ -778,11 +826,16 @@
             LudoAudio.playTurnStart(state.currentPlayer, true);
           }
           const prompt = `It is your turn (${nextPlayer.name})! Press Space or R to roll the dice.`;
-          announce(prompt, 'assertive', true);
-          setTimeout(function () {
-            const rollBtn = document.getElementById('roll-btn');
-            if (rollBtn) rollBtn.focus();
-          }, 100);
+          announce(prompt, 'polite', true);
+          const isNavigatingBoard = document.activeElement && document.activeElement.classList.contains('cell');
+          if (!isNavigatingBoard) {
+            setTimeout(function () {
+              const rollBtn = document.getElementById('roll-btn');
+              if (rollBtn && !(document.activeElement && document.activeElement.classList.contains('cell'))) {
+                rollBtn.focus();
+              }
+            }, 250);
+          }
         } else {
           announce(`It is now ${nextPlayer.name}'s turn. Waiting for remote move.`, 'polite', true);
         }
@@ -799,11 +852,16 @@
             LudoAudio.playTurnStart(state.currentPlayer, true);
           }
           const prompt = `It is your turn (${nextPlayer.name})! Press Space or R to roll the dice.`;
-          announce(prompt, 'assertive', true);
-          setTimeout(function () {
-            const rollBtn = document.getElementById('roll-btn');
-            if (rollBtn) rollBtn.focus();
-          }, 100);
+          announce(prompt, 'polite', true);
+          const isNavigatingBoard = document.activeElement && document.activeElement.classList.contains('cell');
+          if (!isNavigatingBoard) {
+            setTimeout(function () {
+              const rollBtn = document.getElementById('roll-btn');
+              if (rollBtn && !(document.activeElement && document.activeElement.classList.contains('cell'))) {
+                rollBtn.focus();
+              }
+            }, 250);
+          }
           return;
         } else {
           announce(`It is now ${nextPlayer.name}'s turn. Waiting for remote player.`, 'polite', true);
@@ -823,12 +881,17 @@
         LudoAudio.playTurnStart(state.currentPlayer, true);
       }
       const prompt = `It is now ${nextPlayer.name}'s turn. Press Space or R to roll the dice.`;
-      announce(prompt, 'assertive', true);
+      announce(prompt, 'polite', true);
 
-      setTimeout(function () {
-        const rollBtn = document.getElementById('roll-btn');
-        if (rollBtn) rollBtn.focus();
-      }, 100);
+      const isNavigatingBoard = document.activeElement && document.activeElement.classList.contains('cell');
+      if (!isNavigatingBoard) {
+        setTimeout(function () {
+          const rollBtn = document.getElementById('roll-btn');
+          if (rollBtn && !(document.activeElement && document.activeElement.classList.contains('cell'))) {
+            rollBtn.focus();
+          }
+        }, 250);
+      }
     }
   }
 
@@ -894,7 +957,7 @@
     }
 
     render();
-    announce(rollRes.message, 'assertive', true);
+    announce(rollRes.message, 'polite', true);
 
     if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
       LudoMultiplayer.broadcastState({
@@ -910,14 +973,17 @@
       // Turn forfeited or passed automatically
       scheduleAITurnOrHuman();
     } else if (state.phase === 'MOVE') {
-      // Focus the first valid move button immediately so keyboard user can act seamlessly
-      setTimeout(function () {
-        const movesList = document.getElementById('moves-list');
-        const firstMoveBtn = movesList ? movesList.querySelector('button') : null;
-        if (firstMoveBtn) {
-          firstMoveBtn.focus();
-        }
-      }, 50);
+      // Focus the first valid move button (unless user is navigating the board)
+      const isNavigatingBoard = document.activeElement && document.activeElement.classList.contains('cell');
+      if (!isNavigatingBoard) {
+        setTimeout(function () {
+          const movesList = document.getElementById('moves-list');
+          const firstMoveBtn = movesList ? movesList.querySelector('button') : null;
+          if (firstMoveBtn && !(document.activeElement && document.activeElement.classList.contains('cell'))) {
+            firstMoveBtn.focus();
+          }
+        }, 250);
+      }
     }
   }
 
@@ -984,7 +1050,7 @@
     }
 
     render();
-    announce(moveRes.message, 'assertive', true);
+    announce(moveRes.message, 'polite', true);
 
     if (LudoMultiplayer && LudoMultiplayer.isMultiplayer() && LudoMultiplayer.isHost()) {
       LudoMultiplayer.broadcastState({
@@ -1000,11 +1066,16 @@
       if (LudoAudio) LudoAudio.playWin();
       announce('Game Over! ' + (moveRes.winner ? moveRes.winner.name : '') + ' wins the game!', 'assertive', true);
     } else if (moveRes.bonusTurn) {
-      // Human earned a bonus roll: focus roll button again
-      setTimeout(function () {
-        const rollBtn = document.getElementById('roll-btn');
-        if (rollBtn) rollBtn.focus();
-      }, 50);
+      // Human earned a bonus roll: focus roll button again (unless user is navigating the board)
+      const isNavigatingBoard = document.activeElement && document.activeElement.classList.contains('cell');
+      if (!isNavigatingBoard) {
+        setTimeout(function () {
+          const rollBtn = document.getElementById('roll-btn');
+          if (rollBtn && !(document.activeElement && document.activeElement.classList.contains('cell'))) {
+            rollBtn.focus();
+          }
+        }, 250);
+      }
     } else {
       // Turn passed to next player
       scheduleAITurnOrHuman();
@@ -1202,25 +1273,32 @@
         return;
       }
     } else {
-      // Direct 15x15 Board Arrow-Key Navigation
-      if (code === 'ArrowUp') {
+      // Direct 15x15 Board Arrow-Key Navigation on Real Squares Only
+      if (code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight') {
         e.preventDefault();
-        updateBoardCursor(config.cursorRow - 1, config.cursorCol, true);
-        return;
-      }
-      if (code === 'ArrowDown') {
-        e.preventDefault();
-        updateBoardCursor(config.cursorRow + 1, config.cursorCol, true);
-        return;
-      }
-      if (code === 'ArrowLeft') {
-        e.preventDefault();
-        updateBoardCursor(config.cursorRow, config.cursorCol - 1, true);
-        return;
-      }
-      if (code === 'ArrowRight') {
-        e.preventDefault();
-        updateBoardCursor(config.cursorRow, config.cursorCol + 1, true);
+        let dRow = 0, dCol = 0;
+        if (code === 'ArrowUp') dRow = -1;
+        else if (code === 'ArrowDown') dRow = 1;
+        else if (code === 'ArrowLeft') dCol = -1;
+        else if (code === 'ArrowRight') dCol = 1;
+
+        let next = null;
+        if (LudoEngine && typeof LudoEngine.findNextValidSquare === 'function') {
+          next = LudoEngine.findNextValidSquare(config.cursorRow, config.cursorCol, dRow, dCol);
+        }
+
+        if (!next) {
+          if (LudoAudio && typeof LudoAudio.playError === 'function') {
+            LudoAudio.playError();
+          }
+          if (LudoEngine && typeof LudoEngine.getCellInfo === 'function') {
+            const curInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
+            const coordName = (curInfo && curInfo.coord) ? curInfo.coord : getSquareCoord(config.cursorRow, config.cursorCol);
+            announce(`${coordName}. Board edge.`, 'assertive', false);
+          }
+        } else {
+          updateBoardCursor(next.row, next.col, true);
+        }
         return;
       }
 
@@ -1704,7 +1782,12 @@
   }
 
   /**
-   * Initializes the 15x15 Visual Grid DOM structure (once)
+   * Initializes the Authentic Classic Ludo Board Grid DOM structure (once)
+   * Zero non-existent squares: only the 92 real playable Ludo squares exist:
+   * - 4 authentic 6x6 Corner Yard Containers with white inner box and 4 circular slots (16 cells)
+   * - 1 authentic 3x3 Center Home Container with 4 diagonal colored triangles and 4 Home Goals (4 cells)
+   * - 52 Main Track cells (.cell.track-cell)
+   * - 20 Home Stretch cells (.cell.stretch-cell)
    */
   function initVisualBoardGrid() {
     if (typeof document === 'undefined') return;
@@ -1712,111 +1795,225 @@
     if (!grid) return;
 
     grid.innerHTML = '';
-    const cells = [];
 
-    // 15 rows x 15 columns = 225 cells
-    for (let r = 0; r < 15; r++) {
-      for (let c = 0; c < 15; c++) {
-        const cell = document.createElement('div');
-        cell.className = 'cell';
-        cell.dataset.row = String(r);
-        cell.dataset.col = String(c);
-        cell.setAttribute('role', 'gridcell');
-        cell.setAttribute('tabindex', '-1');
-        cell.setAttribute('aria-label', `Row ${r + 1}, Column ${c + 1}`);
+    // Fallback coordinates if engine constants aren't resolved yet
+    const fallbackYardCoords = [
+      [{ row: 1, col: 1 }, { row: 1, col: 4 }, { row: 4, col: 1 }, { row: 4, col: 4 }],
+      [{ row: 1, col: 10 }, { row: 1, col: 13 }, { row: 4, col: 10 }, { row: 4, col: 13 }],
+      [{ row: 10, col: 10 }, { row: 10, col: 13 }, { row: 13, col: 10 }, { row: 13, col: 13 }],
+      [{ row: 10, col: 1 }, { row: 10, col: 4 }, { row: 13, col: 1 }, { row: 13, col: 4 }]
+    ];
 
-        // Click on 15x15 board cell to position cursor and inspect or move piece
-        cell.addEventListener('click', function () {
-          updateBoardCursor(r, c, false);
+    const fallbackGoalCoords = [
+      { row: 7, col: 6 }, // Red
+      { row: 6, col: 7 }, // Green
+      { row: 7, col: 8 }, // Yellow
+      { row: 8, col: 7 }  // Blue
+    ];
+
+    // 1. Render 4 authentic 6x6 Corner Yard Containers
+    const YARDS = [
+      { playerIndex: 0, color: 'red', gridRow: '1 / 7', gridCol: '1 / 7' },
+      { playerIndex: 1, color: 'green', gridRow: '1 / 7', gridCol: '10 / 16' },
+      { playerIndex: 2, color: 'yellow', gridRow: '10 / 16', gridCol: '10 / 16' },
+      { playerIndex: 3, color: 'blue', gridRow: '10 / 16', gridCol: '1 / 7' }
+    ];
+
+    YARDS.forEach(function (yard) {
+      const yardBox = document.createElement('div');
+      yardBox.className = `ludo-yard-box yard-${yard.color}`;
+      yardBox.style.gridRow = yard.gridRow;
+      yardBox.style.gridColumn = yard.gridCol;
+
+      const innerWhite = document.createElement('div');
+      innerWhite.className = 'yard-inner-white';
+
+      const slotCoords = (LudoEngine && LudoEngine.YARD_TOKEN_COORDS && LudoEngine.YARD_TOKEN_COORDS[yard.playerIndex])
+        || fallbackYardCoords[yard.playerIndex];
+
+      slotCoords.forEach(function (coord, slotIdx) {
+        const slotCell = document.createElement('div');
+        slotCell.className = `cell yard-slot yard-slot-${yard.color}`;
+        slotCell.dataset.row = String(coord.row);
+        slotCell.dataset.col = String(coord.col);
+        slotCell.dataset.yardPlayer = String(yard.playerIndex);
+        slotCell.dataset.yardSlot = String(slotIdx);
+        slotCell.setAttribute('role', 'gridcell');
+        slotCell.setAttribute('tabindex', '-1');
+
+        const coordName = getSquareCoord(coord.row, coord.col);
+        slotCell.innerHTML = `<span class="cell-coord" aria-hidden="true">${coordName}</span>`;
+
+        slotCell.addEventListener('click', function () {
+          updateBoardCursor(coord.row, coord.col, false);
           handleBoardCursorEnter();
         });
 
-        // Determine static classification
-        // Red Yard: rows 0..5, cols 0..5
-        if (r <= 5 && c <= 5) {
-          cell.classList.add('yard-red');
-          if ((r === 1 || r === 4) && (c === 1 || c === 4)) {
-            cell.innerHTML = '<div class="yard-nest"></div>';
-          }
-        }
-        // Green Yard: rows 0..5, cols 9..14
-        else if (r <= 5 && c >= 9) {
-          cell.classList.add('yard-green');
-          if ((r === 1 || r === 4) && (c === 10 || c === 13)) {
-            cell.innerHTML = '<div class="yard-nest"></div>';
-          }
-        }
-        // Yellow Yard: rows 9..14, cols 9..14
-        else if (r >= 9 && c >= 9) {
-          cell.classList.add('yard-yellow');
-          if ((r === 10 || r === 13) && (c === 10 || c === 13)) {
-            cell.innerHTML = '<div class="yard-nest"></div>';
-          }
-        }
-        // Blue Yard: rows 9..14, cols 0..5
-        else if (r >= 9 && c <= 5) {
-          cell.classList.add('yard-blue');
-          if ((r === 10 || r === 13) && (c === 1 || c === 4)) {
-            cell.innerHTML = '<div class="yard-nest"></div>';
-          }
-        }
-        // Center Goal 3x3: rows 6..8, cols 6..8
-        else if (r >= 6 && r <= 8 && c >= 6 && c <= 8) {
-          cell.classList.add('goal-cell');
-          if (r === 7 && c === 6) cell.classList.add('goal-red');
-          if (r === 6 && c === 7) cell.classList.add('goal-green');
-          if (r === 7 && c === 8) cell.classList.add('goal-yellow');
-          if (r === 8 && c === 7) cell.classList.add('goal-blue');
-        }
-        // Home stretches
-        else if (r === 7 && c >= 1 && c <= 5) {
-          cell.classList.add('stretch-red');
-        } else if (c === 7 && r >= 1 && r <= 5) {
-          cell.classList.add('stretch-green');
-        } else if (r === 7 && c >= 9 && c <= 13) {
-          cell.classList.add('stretch-yellow');
-        } else if (c === 7 && r >= 9 && r <= 13) {
-          cell.classList.add('stretch-blue');
-        }
-        // Main Track
-        else {
-          cell.classList.add('track-cell');
-        }
+        innerWhite.appendChild(slotCell);
+      });
+
+      yardBox.appendChild(innerWhite);
+      grid.appendChild(yardBox);
+    });
+
+    // 2. Render 1 authentic 3x3 Center Home Container with 4 diagonal colored triangles
+    const centerHome = document.createElement('div');
+    centerHome.className = 'ludo-center-home';
+    centerHome.style.gridRow = '7 / 10';
+    centerHome.style.gridColumn = '7 / 10';
+
+    const svgTriangles = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgTriangles.setAttribute('viewBox', '0 0 100 100');
+    svgTriangles.setAttribute('class', 'center-triangles-svg');
+    svgTriangles.setAttribute('aria-hidden', 'true');
+    svgTriangles.setAttribute('preserveAspectRatio', 'none');
+    svgTriangles.innerHTML = `
+      <polygon points="0,0 50,50 0,100" class="triangle-red" />
+      <polygon points="0,0 100,0 50,50" class="triangle-green" />
+      <polygon points="100,0 100,100 50,50" class="triangle-yellow" />
+      <polygon points="0,100 100,100 50,50" class="triangle-blue" />
+    `;
+    centerHome.appendChild(svgTriangles);
+
+    // 4 Real Home Goal cells positioned inside the 3x3 grid over their triangles
+    const GOALS = [
+      { playerIndex: 0, color: 'red', row: 7, col: 6, gridRow: 2, gridCol: 1 },
+      { playerIndex: 1, color: 'green', row: 6, col: 7, gridRow: 1, gridCol: 2 },
+      { playerIndex: 2, color: 'yellow', row: 7, col: 8, gridRow: 2, gridCol: 3 },
+      { playerIndex: 3, color: 'blue', row: 8, col: 7, gridRow: 3, gridCol: 2 }
+    ];
+
+    GOALS.forEach(function (goal) {
+      const goalCoord = (LudoEngine && LudoEngine.HOME_GOAL_COORDS && LudoEngine.HOME_GOAL_COORDS[goal.playerIndex])
+        || fallbackGoalCoords[goal.playerIndex];
+
+      const goalCell = document.createElement('div');
+      goalCell.className = `cell goal-cell goal-${goal.color}`;
+      goalCell.dataset.row = String(goalCoord.row);
+      goalCell.dataset.col = String(goalCoord.col);
+      goalCell.dataset.goalPlayer = String(goal.playerIndex);
+      goalCell.style.gridRow = String(goal.gridRow);
+      goalCell.style.gridColumn = String(goal.gridCol);
+      goalCell.setAttribute('role', 'gridcell');
+      goalCell.setAttribute('tabindex', '-1');
+
+      const coordName = getSquareCoord(goalCoord.row, goalCoord.col);
+      goalCell.innerHTML = `
+        <span class="cell-coord" aria-hidden="true">${coordName}</span>
+        <span class="goal-icon" aria-hidden="true">🏆</span>
+      `;
+
+      goalCell.addEventListener('click', function () {
+        updateBoardCursor(goalCoord.row, goalCoord.col, false);
+        handleBoardCursorEnter();
+      });
+
+      centerHome.appendChild(goalCell);
+    });
+
+    grid.appendChild(centerHome);
+
+    // 3. Render ONLY the 52 Main Track cells
+    const trackCoords = (LudoEngine && LudoEngine.TRACK_COORDS) || [];
+    const safeIndices = (LudoEngine && LudoEngine.SAFE_INDICES) || [0, 8, 13, 21, 26, 34, 39, 47];
+    const startIndices = (LudoEngine && LudoEngine.START_INDICES) || [0, 13, 26, 39];
+    const startColors = ['red', 'green', 'yellow', 'blue'];
+
+    trackCoords.forEach(function (coord, tIdx) {
+      const cell = document.createElement('div');
+      cell.className = 'cell track-cell';
+      cell.dataset.row = String(coord.row);
+      cell.dataset.col = String(coord.col);
+      cell.dataset.trackIndex = String(tIdx);
+      cell.style.gridRow = String(coord.row + 1);
+      cell.style.gridColumn = String(coord.col + 1);
+      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute('tabindex', '-1');
+
+      const coordName = getSquareCoord(coord.row, coord.col);
+      const isSafe = safeIndices.indexOf(tIdx) !== -1;
+      const startPIdx = startIndices.indexOf(tIdx);
+
+      let markerHtml = '';
+      if (startPIdx !== -1) {
+        cell.classList.add(`start-${startColors[startPIdx]}`);
+        markerHtml = `<span class="safe-star-icon" aria-hidden="true">★</span>`;
+      } else if (isSafe) {
+        cell.classList.add('safe-square');
+        markerHtml = `<span class="safe-star-icon" aria-hidden="true">★</span>`;
+      }
+
+      // Home stretch entry turn arrows
+      if (tIdx === 50) {
+        cell.classList.add('stretch-entry-cell', 'entry-red');
+        markerHtml = `<span class="entry-arrow" aria-hidden="true">→</span>`;
+      } else if (tIdx === 11) {
+        cell.classList.add('stretch-entry-cell', 'entry-green');
+        markerHtml = `<span class="entry-arrow" aria-hidden="true">↓</span>`;
+      } else if (tIdx === 24) {
+        cell.classList.add('stretch-entry-cell', 'entry-yellow');
+        markerHtml = `<span class="entry-arrow" aria-hidden="true">←</span>`;
+      } else if (tIdx === 37) {
+        cell.classList.add('stretch-entry-cell', 'entry-blue');
+        markerHtml = `<span class="entry-arrow" aria-hidden="true">↑</span>`;
+      }
+
+      cell.innerHTML = `
+        <span class="cell-coord" aria-hidden="true">${coordName}</span>
+        ${markerHtml}
+      `;
+
+      cell.addEventListener('click', function () {
+        updateBoardCursor(coord.row, coord.col, false);
+        handleBoardCursorEnter();
+      });
+
+      grid.appendChild(cell);
+    });
+
+    // 4. Render ONLY the 20 Home Stretch cells
+    const stretchCoords = (LudoEngine && LudoEngine.HOME_STRETCH_COORDS) || [];
+    const colors = ['red', 'green', 'yellow', 'blue'];
+
+    stretchCoords.forEach(function (coordsList, pIdx) {
+      const color = colors[pIdx];
+      coordsList.forEach(function (coord, sIdx) {
+        const cell = document.createElement('div');
+        cell.className = `cell stretch-cell stretch-${color}`;
+        cell.dataset.row = String(coord.row);
+        cell.dataset.col = String(coord.col);
+        cell.dataset.stretchPlayer = String(pIdx);
+        cell.dataset.stretchIndex = String(sIdx + 1);
+        cell.style.gridRow = String(coord.row + 1);
+        cell.style.gridColumn = String(coord.col + 1);
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('tabindex', '-1');
+
+        const coordName = getSquareCoord(coord.row, coord.col);
+        cell.innerHTML = `
+          <span class="cell-coord" aria-hidden="true">${coordName}</span>
+          <span class="stretch-num-label" aria-hidden="true">${sIdx + 1}</span>
+        `;
+
+        cell.addEventListener('click', function () {
+          updateBoardCursor(coord.row, coord.col, false);
+          handleBoardCursorEnter();
+        });
 
         grid.appendChild(cell);
-        cells.push(cell);
-      }
-    }
-
-    // Mark Safe and Start Squares on the track cells
-    if (LudoEngine) {
-      LudoEngine.SAFE_INDICES.forEach(function (safeTrackIdx) {
-        const coord = LudoEngine.TRACK_COORDS[safeTrackIdx];
-        if (coord) {
-          const el = grid.querySelector(`[data-row="${coord.row}"][data-col="${coord.col}"]`);
-          if (el) el.classList.add('safe-square');
-        }
       });
-
-      const startClasses = ['start-red', 'start-green', 'start-yellow', 'start-blue'];
-      LudoEngine.START_INDICES.forEach(function (startTrackIdx, pIdx) {
-        const coord = LudoEngine.TRACK_COORDS[startTrackIdx];
-        if (coord) {
-          const el = grid.querySelector(`[data-row="${coord.row}"][data-col="${coord.col}"]`);
-          if (el) el.classList.add(startClasses[pIdx]);
-        }
-      });
-    }
+    });
 
     // Set initial active highlight on the default cursor cell
     const initCell = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
     if (initCell) {
       initCell.classList.add('board-cursor-active');
+      initCell.setAttribute('tabindex', '0');
     }
   }
 
   /**
-   * Updates visual tokens on the 15x15 board grid
+   * Updates visual tokens and accessible labels on the 15x15 board grid
    */
   function renderVisualBoard() {
     if (typeof document === 'undefined') return;
@@ -1881,11 +2078,29 @@
       }
     });
 
-    // Ensure active cursor highlight and live status bar are updated
+    // Update accessible name (aria-label) and tabindex of all 92 cells
+    const allCells = grid.querySelectorAll('.cell');
     const activeCell = grid.querySelector(`[data-row="${config.cursorRow}"][data-col="${config.cursorCol}"]`);
-    if (activeCell) {
-      activeCell.classList.add('board-cursor-active');
-    }
+
+    allCells.forEach(function (cell) {
+      const r = parseInt(cell.dataset.row, 10);
+      const c = parseInt(cell.dataset.col, 10);
+      if (!isNaN(r) && !isNaN(c) && typeof LudoEngine.getCellInfo === 'function') {
+        const info = LudoEngine.getCellInfo(state, r, c);
+        if (info && info.speechSummary) {
+          cell.setAttribute('aria-label', info.speechSummary);
+        }
+      }
+
+      if (cell === activeCell) {
+        cell.classList.add('board-cursor-active');
+        cell.setAttribute('tabindex', '0');
+      } else {
+        cell.classList.remove('board-cursor-active');
+        cell.setAttribute('tabindex', '-1');
+      }
+    });
+
     updateBoardCursorBar();
   }
 

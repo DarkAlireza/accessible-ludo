@@ -11,9 +11,10 @@
   <!-- Skip Navigation Link -->
   <a href="#action-center" class="skip-link">Skip to Turn &amp; Action Center</a>
 
-  <!-- Dual ARIA Live Regions for Screen Readers -->
-  <div id="sr-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <!-- Dedicated Screen Reader Live Regions -->
+  <div id="sr-polite" class="sr-only" role="log" aria-live="polite" aria-atomic="false" aria-relevant="additions text"></div>
   <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+  <div id="sr-board-cursor" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 
   <!-- Application Header Landmark -->
   <header class="app-header" role="banner">
@@ -129,7 +130,7 @@
       <div class="mp-footer-row">
         <div class="mp-players-container">
           <span class="mp-players-label"><strong>Seat Assignments &amp; Connected Players:</strong></span>
-          <div id="mp-players-list" class="mp-players-list" aria-live="polite">
+          <div id="mp-players-list" class="mp-players-list">
             <span class="mp-player-tag tag-red">Red: Human (Host)</span>
             <span class="mp-player-tag tag-green">Green: AI</span>
             <span class="mp-player-tag tag-yellow">Yellow: AI</span>
@@ -151,12 +152,12 @@
             <div class="turn-badges">
               <span id="player-badge" class="badge badge-player red">Red (Human)</span>
               <span id="phase-badge" class="badge badge-phase">Roll Phase</span>
-              <span id="bonus-badge" class="badge badge-bonus hidden" aria-live="polite">Bonus Turn!</span>
+              <span id="bonus-badge" class="badge badge-bonus hidden">Bonus Turn!</span>
             </div>
           </div>
 
           <!-- Turn announcement display -->
-          <div class="turn-summary-box" aria-live="polite" aria-atomic="true">
+          <div class="turn-summary-box">
             <p id="turn-announcement" class="turn-announcement-text">
               Welcome to Accessible Ludo! Red to play. Press <kbd>Space</kbd> or <kbd>R</kbd> or click the button below to roll the dice.
             </p>
@@ -178,7 +179,7 @@
               </div>
               <div class="dice-info">
                 <span class="dice-info-label">Last Roll:</span>
-                <span id="dice-value-text" class="dice-value-text" aria-live="polite">—</span>
+                <span id="dice-value-text" class="dice-value-text">—</span>
               </div>
             </div>
 
@@ -210,7 +211,7 @@
           <div class="card-header-row">
             <div>
               <h2 id="board-heading" class="section-heading">Interactive 15×15 Ludo Board</h2>
-              <p class="board-help-text">Use <kbd>Arrow</kbd> keys to navigate 15×15 squares, <kbd>[</kbd> / <kbd>]</kbd> to step track, <kbd>Enter</kbd> to inspect or move piece.</p>
+              <p class="board-help-text">Use <kbd>Arrow</kbd> keys to navigate real squares, <kbd>[</kbd> / <kbd>]</kbd> to step track, <kbd>Enter</kbd> to inspect or move piece.</p>
             </div>
             <div class="board-legend">
               <span class="legend-item"><span class="legend-swatch swatch-safe" aria-hidden="true">★</span> Safe Square</span>
@@ -222,15 +223,28 @@
           </div>
 
           <!-- Live Board Cursor Status Bar -->
-          <div id="board-cursor-bar" class="board-cursor-bar" role="status" aria-live="polite" aria-atomic="true">
+          <div id="board-cursor-bar" class="board-cursor-bar" role="status">
             <span class="cursor-bar-title">Board Cursor:</span>
-            <span id="board-cursor-text" class="cursor-bar-text">Row 7, Col 2 — Track 1 (Red Start, Safe) — Occupied by: Red Token 1</span>
+            <span id="board-cursor-text" class="cursor-bar-text">B7 — Track 1 (Red Start, Safe) — Occupied by: Red Token 1</span>
           </div>
 
           <!-- Interactive visual grid with role="grid" tabindex="0" for direct 15x15 board arrow-key navigation -->
           <div class="board-container">
-            <div id="visual-board" class="ludo-grid" role="grid" aria-label="Interactive 15 by 15 Ludo Board. Use Arrow keys to navigate squares, Enter to inspect or move piece." tabindex="0">
-              <!-- 225 grid cells generated via JS -->
+            <div class="board-frame">
+              <div class="board-coord-corner" aria-hidden="true"></div>
+              <div class="board-coord-cols" aria-hidden="true">
+                <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+                <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+                <span>K</span><span>L</span><span>M</span><span>N</span><span>O</span>
+              </div>
+              <div class="board-coord-rows" aria-hidden="true">
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+                <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+              </div>
+              <div id="visual-board" class="ludo-grid" role="grid" aria-label="Interactive 15 by 15 Ludo Board. Use Arrow keys to navigate squares, Enter to inspect or move piece." tabindex="0">
+                <!-- Authentic Ludo Board with 92 real squares generated via JS -->
+              </div>
             </div>
           </div>
         </section>
@@ -256,7 +270,7 @@
           </div>
 
           <!-- Current Inspected Square Details Card -->
-          <div id="explorer-focus-card" class="explorer-focus-card" aria-live="polite" aria-atomic="true">
+          <div id="explorer-focus-card" class="explorer-focus-card">
             <div class="focus-card-header">
               <span id="explorer-focus-label" class="focus-title">Select a square below to inspect</span>
               <span id="explorer-focus-badge" class="badge">Board Explorer</span>
@@ -301,7 +315,7 @@
               </button>
             </div>
           </div>
-          <div id="game-log" class="game-log" role="log" aria-label="Game event history" aria-live="polite" tabindex="0">
+          <div id="game-log" class="game-log" role="log" aria-label="Game event history" tabindex="0">
             <!-- Dynamically populated log entries -->
           </div>
         </section>

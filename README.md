@@ -8,8 +8,21 @@ Live Demo: [https://darkalireza.github.io/accessible-ludo/](https://darkalireza.
 
 ## 🌟 Key Accessibility & Gameplay Features
 
+- **Authentic Classic Ludo Board Layout & Visuals:**
+  - 4 corner base Yards styled as genuine 6×6 Ludo base boxes (`.ludo-yard-box`), each containing a crisp white inner box with 4 colored circular token nests.
+  - Authentic 3×3 central Home (`.ludo-center-home`) featuring 4 colored diagonal triangles meeting in the center and 4 Home Goal squares.
+  - Alphanumeric coordinate frame with column letters `A`–`O` and row numbers `1`–`15`, directional entry arrows on home-stretch turns, and bold stars (`★`) on safe squares.
+- **Strict 92 Playable Ludo Squares (Zero Fake or Invented Cells):**
+  - Only the 92 real playable Ludo squares exist: 52 Main Track squares, 20 Home Stretch squares, 4 Home Goal squares, and 16 Yard token slots.
+  - No fake squares (`yardBorder`, `yardArea`, or `centerArea`) exist in the DOM or board explorer.
+- **Alphanumeric Grid Coordinates (`A7`, `B7`, etc.) & Smart Navigation:**
+  - Every square has a standardized coordinate name (`A1`..`O15`).
+  - Arrow-key navigation moves cleanly across real squares via `findNextValidSquare`, announcing coordinates first (e.g. `"B7, Track 1 (Red Start, Safe). Occupied by Red Token 1."` or `"A7, Track 52. Empty."`).
+- **NVDA Native Live-Log Speech Optimization:**
+  - Competing `aria-live` attributes removed from visual badges.
+  - Dedicated `#sr-polite` live log (`role="log" aria-live="polite" aria-relevant="additions text"`) appends child `<div>` elements for each game event, ensuring screen readers (especially NVDA) speak every dice roll, capture, and AI turn without cutting off or cancelling prior speech.
 - **Direct 15×15 Board Arrow-Key Navigation:**
-  - Navigate the entire 15×15 Ludo board directly using <kbd>Up</kbd>, <kbd>Down</kbd>, <kbd>Left</kbd>, and <kbd>Right</kbd> arrow keys without needing mouse interaction.
+  - Navigate the entire board directly using <kbd>Up</kbd>, <kbd>Down</kbd>, <kbd>Left</kbd>, and <kbd>Right</kbd> arrow keys without needing mouse interaction.
   - Step sequentially along the 52-square main track with <kbd>[</kbd> and <kbd>]</kbd>.
   - Pressing <kbd>Enter</kbd> on a square inspects it in full detail—or, during your move phase, immediately executes that token's move directly from the cursor!
 - **Tactile Earcons for Empty vs. Occupied Squares:**
@@ -22,7 +35,6 @@ Live Demo: [https://darkalireza.github.io/accessible-ludo/](https://darkalireza.
   - Click **"Host & Create Shareable Link"** (or press <kbd>P</kbd>) to instantly create a room and copy the link (`?room=<id>`).
   - Friends opening the link automatically join the room, are assigned a player seat and color, and enjoy 100% synchronized dice rolls, moves, audio earcons, and screen-reader announcements.
 - **Semantic HTML5 & ARIA Landmarks:** Full `<header role="banner">`, `<main role="main">`, `<aside>`, and `<footer role="contentinfo">` with skip navigation links and clean heading hierarchy.
-- **Dual ARIA Live Regions:** Structured `#sr-polite` and `#sr-assertive` regions announce dice rolls, tactical moves, capture warnings, and turn changes cleanly without audio clipping.
 - **Procedural Web Audio API Earcons:** Zero external audio files. Synthesized in real-time:
   - **Dice Rolls:** Tactile wooden rattle followed by 1–6 counting pitch intervals (with a triumphant chord on a roll of 6).
   - **Yard Exit:** Rising bright arpeggio.
@@ -101,7 +113,7 @@ Live Demo: [https://darkalireza.github.io/accessible-ludo/](https://darkalireza.
 - `index.html`: Semantic HTML5 structure, ARIA landmarks, dual live regions (`#sr-polite`, `#sr-assertive`), multiplayer lobby panel, accessible dialog modals, and 15×15 visual board.
 - `styles.css`: WCAG AAA dark/light high-contrast styling, thick focus indicators, responsive grid layouts, and `.board-cursor-active` 4px glowing active square highlight.
 - `app.js` (`window.LudoApp`): UI controller binding engine, audio, and multiplayer modules, managing 15×15 arrow-key board navigation, keyboard shortcuts, focus restoration, and AI pacing.
-- `tests.js`: Automated Node.js test suite with 43 comprehensive unit and integration tests verifying all game mechanics, grid cell introspection, audio synthesis, and multiplayer networking (`node tests.js`).
+- `tests.js`: Automated Node.js test suite with 45 comprehensive unit and integration tests verifying all game mechanics, grid cell introspection, audio synthesis, and multiplayer networking (`node tests.js`).
 
 ---
 

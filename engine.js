@@ -156,6 +156,137 @@
   ];
 
   /**
+   * Returns alphanumeric coordinate name (e.g. 'A7', 'B7', 'B2', 'G8') for a (row, col) on the 15x15 board.
+   * Col 0..14 -> 'A'..'O', Row 0..14 -> 1..15.
+   */
+  function getCoordName(row, col) {
+    const r = Number(row);
+    const c = Number(col);
+    if (isNaN(r) || isNaN(c) || r < 0 || r > 14 || c < 0 || c > 14) {
+      return '';
+    }
+    return String.fromCharCode(65 + c) + (r + 1);
+  }
+
+  // Precompute the 92 real playable Ludo squares
+  const ALL_VALID_SQUARES = [];
+  const VALID_SQUARE_SET = new Set();
+
+  function registerValidSquare(r, c) {
+    const key = `${r},${c}`;
+    if (!VALID_SQUARE_SET.has(key)) {
+      VALID_SQUARE_SET.add(key);
+      ALL_VALID_SQUARES.push({ row: r, col: c, coord: getCoordName(r, c) });
+    }
+  }
+
+  // 1. 52 Track squares
+  TRACK_COORDS.forEach(c => registerValidSquare(c.row, c.col));
+
+  // 2. 20 Home Stretch squares (4 colors x 5 steps)
+  HOME_STRETCH_COORDS.forEach(colorCoords => {
+    colorCoords.forEach(c => registerValidSquare(c.row, c.col));
+  });
+
+  // 3. 4 Home Goal squares
+  HOME_GOAL_COORDS.forEach(c => registerValidSquare(c.row, c.col));
+
+  // 4. 16 Yard Token Slots (4 colors x 4 tokens)
+  YARD_TOKEN_COORDS.forEach(colorCoords => {
+    colorCoords.forEach(c => registerValidSquare(c.row, c.col));
+  });
+
+  /**
+   * Returns whether a given (row, col) is one of the 92 real playable Ludo squares.
+   */
+  function isValidSquare(row, col) {
+    const r = Number(row);
+    const c = Number(col);
+    if (isNaN(r) || isNaN(c) || r < 0 || r > 14 || c < 0 || c > 14) {
+      return false;
+    }
+    return VALID_SQUARE_SET.has(`${r},${c}`);
+  }
+
+  /**
+   * Returns an array of all 92 real playable Ludo squares ({ row, col, coord }).
+   */
+  function getAllValidSquares() {
+    return ALL_VALID_SQUARES.map(sq => ({ row: sq.row, col: sq.col, coord: sq.coord }));
+  }
+
+  /**
+   * Finds the next valid Ludo square in direction (dRow, dCol) from (row, col).
+   * Moves exclusively between the 92 real playable squares.
+   *
+   * @param {number} row Current row (0..14)
+   * @param {number} col Current col (0..14)
+   * @param {number} dRow Delta row (-1, 0, 1)
+   * @param {number} dCol Delta col (-1, 0, 1)
+   * @returns {{ row: number, col: number } | null}
+   */
+  function findNextValidSquare(row, col, dRow, dCol) {
+    const r = Number(row);
+    const c = Number(col);
+    const dr = Number(dRow);
+    const dc = Number(dCol);
+
+    if (isNaN(r) || isNaN(c) || isNaN(dr) || isNaN(dc)) return null;
+    if (dr === 0 && dc === 0) return null;
+
+    // 1. If direct immediate neighbor is valid, return it
+    const nextR = r + dr;
+    const nextC = c + dc;
+    if (nextR >= 0 && nextR < 15 && nextC >= 0 && nextC < 15 && isValidSquare(nextR, nextC)) {
+      return { row: nextR, col: nextC };
+    }
+
+    // 2. Search all 92 valid squares strictly in the direction of (dRow, dCol)
+    const candidates = [];
+    for (let i = 0; i < ALL_VALID_SQUARES.length; i++) {
+      const sq = ALL_VALID_SQUARES[i];
+      const vr = sq.row;
+      const vc = sq.col;
+
+      // Must lie strictly in the requested direction
+      if (dc > 0 && vc <= c) continue;
+      if (dc < 0 && vc >= c) continue;
+      if (dr > 0 && vr <= r) continue;
+      if (dr < 0 && vr >= r) continue;
+
+      const primaryDist = Math.abs(dc !== 0 ? vc - c : vr - r);
+      const perpDist = Math.abs(dc !== 0 ? vr - r : vc - c);
+
+      candidates.push({ row: vr, col: vc, primaryDist, perpDist });
+    }
+
+    if (candidates.length === 0) return null;
+
+    // Prefer candidates with perpDist === 0 if primaryDist <= 5
+    // (e.g. moving across Yard slots B2 -> E2 or B5 -> B7)
+    const directLineCandidates = candidates.filter(cand => cand.perpDist === 0 && cand.primaryDist <= 5);
+    if (directLineCandidates.length > 0) {
+      directLineCandidates.sort((a, b) => a.primaryDist - b.primaryDist);
+      return { row: directLineCandidates[0].row, col: directLineCandidates[0].col };
+    }
+
+    // Otherwise minimize primaryDist + perpDist * 2.2
+    candidates.sort((a, b) => {
+      const scoreA = a.primaryDist + a.perpDist * 2.2;
+      const scoreB = b.primaryDist + b.perpDist * 2.2;
+      if (Math.abs(scoreA - scoreB) > 1e-6) {
+        return scoreA - scoreB;
+      }
+      if (a.primaryDist !== b.primaryDist) {
+        return a.primaryDist - b.primaryDist;
+      }
+      return a.perpDist - b.perpDist;
+    });
+
+    return { row: candidates[0].row, col: candidates[0].col };
+  }
+
+  /**
    * Returns whether a track square index (0..51) is a designated safe square.
    */
   function isSafeSquare(absIndex) {
@@ -1009,7 +1140,7 @@
 
     // 1. Yards (4)
     for (let pIdx = 0; pIdx < 4; pIdx++) {
-      const p = state.players[pIdx];
+      const p = state && state.players ? state.players[pIdx] : null;
       const tokensInYard = [];
       if (p && p.type !== 'none') {
         for (let t = 0; t < 4; t++) {
@@ -1023,56 +1154,64 @@
           }
         }
       }
+      const coords = YARD_TOKEN_COORDS[pIdx][0];
+      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `yard-${pIdx}`,
         type: 'yard',
-        label: `${COLORS[pIdx]} Yard`,
+        label: `${coord}: ${COLORS[pIdx]} Yard`,
+        coord: coord,
         playerIndex: pIdx,
         tokens: tokensInYard,
         isOccupied: tokensInYard.length > 0,
         isSafe: true,
-        coords: YARD_TOKEN_COORDS[pIdx][0]
+        coords: coords
       });
     }
 
     // 2. Track Squares (0..51)
     for (let trackIdx = 0; trackIdx < 52; trackIdx++) {
       const tokensOnTrack = [];
-      for (let pIdx = 0; pIdx < 4; pIdx++) {
-        const p = state.players[pIdx];
-        if (!p || p.type === 'none') continue;
+      if (state && state.players) {
+        for (let pIdx = 0; pIdx < 4; pIdx++) {
+          const p = state.players[pIdx];
+          if (!p || p.type === 'none') continue;
 
-        for (let t = 0; t < 4; t++) {
-          const step = p.tokens[t];
-          if (step >= 0 && step <= 50) {
-            const abs = getAbsoluteTrackIndex(pIdx, step);
-            if (abs === trackIdx) {
-              tokensOnTrack.push({
-                playerIndex: pIdx,
-                tokenIndex: t,
-                color: COLORS[pIdx],
-                label: `${COLORS[pIdx]} Token ${t + 1}`
-              });
+          for (let t = 0; t < 4; t++) {
+            const step = p.tokens[t];
+            if (step >= 0 && step <= 50) {
+              const abs = getAbsoluteTrackIndex(pIdx, step);
+              if (abs === trackIdx) {
+                tokensOnTrack.push({
+                  playerIndex: pIdx,
+                  tokenIndex: t,
+                  color: COLORS[pIdx],
+                  label: `${COLORS[pIdx]} Token ${t + 1}`
+                });
+              }
             }
           }
         }
       }
 
+      const coords = TRACK_COORDS[trackIdx];
+      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `track-${trackIdx}`,
         type: 'track',
         trackIndex: trackIdx,
-        label: formatTrackDesc(trackIdx),
+        label: `${coord}: ${formatTrackDesc(trackIdx)}`,
+        coord: coord,
         tokens: tokensOnTrack,
         isOccupied: tokensOnTrack.length > 0,
         isSafe: isSafeSquare(trackIdx),
-        coords: TRACK_COORDS[trackIdx]
+        coords: coords
       });
     }
 
     // 3. Home Stretches (4 colors x 5 squares)
     for (let pIdx = 0; pIdx < 4; pIdx++) {
-      const p = state.players[pIdx];
+      const p = state && state.players ? state.players[pIdx] : null;
       for (let s = 1; s <= 5; s++) {
         const targetStep = 50 + s;
         const tokensInStretch = [];
@@ -1089,23 +1228,26 @@
           }
         }
 
+        const coords = HOME_STRETCH_COORDS[pIdx][s - 1];
+        const coord = getCoordName(coords.row, coords.col);
         items.push({
           id: `home-stretch-${pIdx}-${s}`,
           type: 'homeStretch',
           playerIndex: pIdx,
           stepIndex: s,
-          label: `${COLORS[pIdx]} Home Stretch ${s}`,
+          label: `${coord}: ${COLORS[pIdx]} Home Stretch ${s}`,
+          coord: coord,
           tokens: tokensInStretch,
           isOccupied: tokensInStretch.length > 0,
           isSafe: true,
-          coords: HOME_STRETCH_COORDS[pIdx][s - 1]
+          coords: coords
         });
       }
     }
 
     // 4. Home Goals (4 colors)
     for (let pIdx = 0; pIdx < 4; pIdx++) {
-      const p = state.players[pIdx];
+      const p = state && state.players ? state.players[pIdx] : null;
       const tokensInHome = [];
       if (p && p.type !== 'none') {
         for (let t = 0; t < 4; t++) {
@@ -1120,15 +1262,18 @@
         }
       }
 
+      const coords = HOME_GOAL_COORDS[pIdx];
+      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `home-goal-${pIdx}`,
         type: 'homeGoal',
         playerIndex: pIdx,
-        label: `${COLORS[pIdx]} Home Goal`,
+        label: `${coord}: ${COLORS[pIdx]} Home Goal`,
+        coord: coord,
         tokens: tokensInHome,
         isOccupied: tokensInHome.length > 0,
         isSafe: true,
-        coords: HOME_GOAL_COORDS[pIdx]
+        coords: coords
       });
     }
 
@@ -1137,35 +1282,39 @@
 
   /**
    * Complete metadata and screen-reader summary for any (row, col) on the 15x15 grid.
+   * Only the 92 real playable Ludo squares are valid squares.
    *
    * @param {object} state Current game state
    * @param {number} row 0..14
    * @param {number} col 0..14
    * @returns {object} Cell metadata:
-   *   { row, col, type, label, trackIndex, playerIndex, isSafe, isOccupied, tokens, threats, speechSummary }
+   *   { row, col, coord, isValidSquare, type, label, trackIndex, playerIndex, isSafe, isOccupied, tokens, threats, speechSummary }
    */
   function getCellInfo(state, row, col) {
     const r = Number(row);
     const c = Number(col);
+    const coord = getCoordName(r, c);
 
-    if (isNaN(r) || isNaN(c) || r < 0 || r > 14 || c < 0 || c > 14) {
+    if (!isValidSquare(r, c)) {
       return {
         row: r,
         col: c,
-        type: 'centerArea',
-        label: 'Out of bounds',
+        coord,
+        isValidSquare: false,
+        type: null,
+        label: '',
         trackIndex: null,
         playerIndex: null,
         isSafe: false,
         isOccupied: false,
         tokens: [],
         threats: [],
-        speechSummary: `Row ${r}, Column ${c}: Out of bounds.`
+        speechSummary: ''
       };
     }
 
-    let type = 'centerArea';
-    let label = 'Center Area';
+    let type = null;
+    let label = '';
     let trackIndex = null;
     let playerIndex = null;
     let isSafe = false;
@@ -1189,163 +1338,106 @@
       }
     }
 
-    // 1. Yards (4 corners of 6x6)
-    if (r <= 5 && c <= 5) {
-      // Red Yard (Player 0)
-      playerIndex = 0;
-      const nestIdx = YARD_TOKEN_COORDS[0].findIndex(coord => coord.row === r && coord.col === c);
+    // 1. Yard Nests (16 slots: 4 colors x 4 tokens)
+    let yardNestFound = false;
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const nestIdx = YARD_TOKEN_COORDS[pIdx].findIndex(cCoord => cCoord.row === r && cCoord.col === c);
       if (nestIdx !== -1) {
         type = 'yardNest';
-        label = `Red Yard Nest ${nestIdx + 1}`;
+        playerIndex = pIdx;
+        label = `${COLORS[pIdx]} Yard ${nestIdx + 1}`;
         isSafe = true;
-        collectPlayerTokens(0, (step, t) => t === nestIdx && step === -1);
-      } else {
-        type = 'yardArea';
-        label = (r === 0 || r === 5 || c === 0 || c === 5) ? 'Red Yard Border' : 'Red Yard Area';
-        isSafe = false;
-      }
-    } else if (r <= 5 && c >= 9) {
-      // Green Yard (Player 1)
-      playerIndex = 1;
-      const nestIdx = YARD_TOKEN_COORDS[1].findIndex(coord => coord.row === r && coord.col === c);
-      if (nestIdx !== -1) {
-        type = 'yardNest';
-        label = `Green Yard Nest ${nestIdx + 1}`;
-        isSafe = true;
-        collectPlayerTokens(1, (step, t) => t === nestIdx && step === -1);
-      } else {
-        type = 'yardArea';
-        label = (r === 0 || r === 5 || c === 9 || c === 14) ? 'Green Yard Border' : 'Green Yard Area';
-        isSafe = false;
-      }
-    } else if (r >= 9 && c >= 9) {
-      // Yellow Yard (Player 2)
-      playerIndex = 2;
-      const nestIdx = YARD_TOKEN_COORDS[2].findIndex(coord => coord.row === r && coord.col === c);
-      if (nestIdx !== -1) {
-        type = 'yardNest';
-        label = `Yellow Yard Nest ${nestIdx + 1}`;
-        isSafe = true;
-        collectPlayerTokens(2, (step, t) => t === nestIdx && step === -1);
-      } else {
-        type = 'yardArea';
-        label = (r === 9 || r === 14 || c === 9 || c === 14) ? 'Yellow Yard Border' : 'Yellow Yard Area';
-        isSafe = false;
-      }
-    } else if (r >= 9 && c <= 5) {
-      // Blue Yard (Player 3)
-      playerIndex = 3;
-      const nestIdx = YARD_TOKEN_COORDS[3].findIndex(coord => coord.row === r && coord.col === c);
-      if (nestIdx !== -1) {
-        type = 'yardNest';
-        label = `Blue Yard Nest ${nestIdx + 1}`;
-        isSafe = true;
-        collectPlayerTokens(3, (step, t) => t === nestIdx && step === -1);
-      } else {
-        type = 'yardArea';
-        label = (r === 9 || r === 14 || c === 0 || c === 5) ? 'Blue Yard Border' : 'Blue Yard Area';
-        isSafe = false;
+        collectPlayerTokens(pIdx, (step, t) => t === nestIdx && step === -1);
+        yardNestFound = true;
+        break;
       }
     }
-    // 2. Home Goals (Center cross positions)
-    else if (r === 7 && c === 6) {
-      type = 'homeGoal';
-      playerIndex = 0;
-      label = 'Red Home Goal';
-      isSafe = true;
-      collectPlayerTokens(0, step => step === 56);
-    } else if (r === 6 && c === 7) {
-      type = 'homeGoal';
-      playerIndex = 1;
-      label = 'Green Home Goal';
-      isSafe = true;
-      collectPlayerTokens(1, step => step === 56);
-    } else if (r === 7 && c === 8) {
-      type = 'homeGoal';
-      playerIndex = 2;
-      label = 'Yellow Home Goal';
-      isSafe = true;
-      collectPlayerTokens(2, step => step === 56);
-    } else if (r === 8 && c === 7) {
-      type = 'homeGoal';
-      playerIndex = 3;
-      label = 'Blue Home Goal';
-      isSafe = true;
-      collectPlayerTokens(3, step => step === 56);
-    }
-    // 3. Center Area (Remaining 3x3 center cells: 6..8, 6..8)
-    else if (r >= 6 && r <= 8 && c >= 6 && c <= 8) {
-      type = 'centerArea';
-      playerIndex = null;
-      label = (r === 7 && c === 7) ? 'Board Center' : 'Center Area';
-      isSafe = false;
-    }
-    // 4. Home Stretches
-    else if (r === 7 && c >= 1 && c <= 5) {
-      // Red Home Stretch (cols 1..5 -> steps 51..55)
-      type = 'homeStretch';
-      playerIndex = 0;
-      const stretchNum = c; // 1..5
-      const targetStep = 50 + stretchNum;
-      label = `Red Home Stretch ${stretchNum}`;
-      isSafe = true;
-      collectPlayerTokens(0, step => step === targetStep);
-    } else if (c === 7 && r >= 1 && r <= 5) {
-      // Green Home Stretch (rows 1..5 -> steps 51..55)
-      type = 'homeStretch';
-      playerIndex = 1;
-      const stretchNum = r; // 1..5
-      const targetStep = 50 + stretchNum;
-      label = `Green Home Stretch ${stretchNum}`;
-      isSafe = true;
-      collectPlayerTokens(1, step => step === targetStep);
-    } else if (r === 7 && c >= 9 && c <= 13) {
-      // Yellow Home Stretch (cols 13 down to 9 -> steps 51..55)
-      type = 'homeStretch';
-      playerIndex = 2;
-      const stretchNum = 14 - c; // col 13 is 1, col 9 is 5
-      const targetStep = 50 + stretchNum;
-      label = `Yellow Home Stretch ${stretchNum}`;
-      isSafe = true;
-      collectPlayerTokens(2, step => step === targetStep);
-    } else if (c === 7 && r >= 9 && r <= 13) {
-      // Blue Home Stretch (rows 13 down to 9 -> steps 51..55)
-      type = 'homeStretch';
-      playerIndex = 3;
-      const stretchNum = 14 - r; // row 13 is 1, row 9 is 5
-      const targetStep = 50 + stretchNum;
-      label = `Blue Home Stretch ${stretchNum}`;
-      isSafe = true;
-      collectPlayerTokens(3, step => step === targetStep);
-    }
-    // 5. Main Track (52 squares)
-    else {
-      const tIdx = TRACK_COORDS.findIndex(coord => coord.row === r && coord.col === c);
-      if (tIdx !== -1) {
-        type = 'track';
-        trackIndex = tIdx;
-        const startPIdx = START_INDICES.indexOf(tIdx);
-        playerIndex = startPIdx !== -1 ? startPIdx : null;
-        isSafe = isSafeSquare(tIdx);
-        label = formatTrackDesc(tIdx);
 
-        // Collect tokens on this track square
-        if (state && state.players) {
-          for (let pIdx = 0; pIdx < 4; pIdx++) {
-            const p = state.players[pIdx];
-            if (!p || p.type === 'none') continue;
-            for (let t = 0; t < 4; t++) {
-              const step = p.tokens[t];
-              if (step >= 0 && step <= 50) {
-                const abs = getAbsoluteTrackIndex(pIdx, step);
-                if (abs === tIdx) {
-                  tokens.push({
-                    playerIndex: pIdx,
-                    tokenIndex: t,
-                    color: COLORS[pIdx],
-                    step: step,
-                    label: `${COLORS[pIdx]} Token ${t + 1}`
-                  });
+    if (!yardNestFound) {
+      // 2. Home Goals (4 colors)
+      if (r === 7 && c === 6) {
+        type = 'homeGoal';
+        playerIndex = 0;
+        label = 'Red Home Goal';
+        isSafe = true;
+        collectPlayerTokens(0, step => step === 56);
+      } else if (r === 6 && c === 7) {
+        type = 'homeGoal';
+        playerIndex = 1;
+        label = 'Green Home Goal';
+        isSafe = true;
+        collectPlayerTokens(1, step => step === 56);
+      } else if (r === 7 && c === 8) {
+        type = 'homeGoal';
+        playerIndex = 2;
+        label = 'Yellow Home Goal';
+        isSafe = true;
+        collectPlayerTokens(2, step => step === 56);
+      } else if (r === 8 && c === 7) {
+        type = 'homeGoal';
+        playerIndex = 3;
+        label = 'Blue Home Goal';
+        isSafe = true;
+        collectPlayerTokens(3, step => step === 56);
+      }
+      // 3. Home Stretches (4 colors x 5 squares)
+      else if (r === 7 && c >= 1 && c <= 5) {
+        type = 'homeStretch';
+        playerIndex = 0;
+        const stretchNum = c;
+        label = `Red Home Stretch ${stretchNum}`;
+        isSafe = true;
+        collectPlayerTokens(0, step => step === 50 + stretchNum);
+      } else if (c === 7 && r >= 1 && r <= 5) {
+        type = 'homeStretch';
+        playerIndex = 1;
+        const stretchNum = r;
+        label = `Green Home Stretch ${stretchNum}`;
+        isSafe = true;
+        collectPlayerTokens(1, step => step === 50 + stretchNum);
+      } else if (r === 7 && c >= 9 && c <= 13) {
+        type = 'homeStretch';
+        playerIndex = 2;
+        const stretchNum = 14 - c;
+        label = `Yellow Home Stretch ${stretchNum}`;
+        isSafe = true;
+        collectPlayerTokens(2, step => step === 50 + stretchNum);
+      } else if (c === 7 && r >= 9 && r <= 13) {
+        type = 'homeStretch';
+        playerIndex = 3;
+        const stretchNum = 14 - r;
+        label = `Blue Home Stretch ${stretchNum}`;
+        isSafe = true;
+        collectPlayerTokens(3, step => step === 50 + stretchNum);
+      }
+      // 4. Main Track (52 squares)
+      else {
+        const tIdx = TRACK_COORDS.findIndex(cCoord => cCoord.row === r && cCoord.col === c);
+        if (tIdx !== -1) {
+          type = 'track';
+          trackIndex = tIdx;
+          const startPIdx = START_INDICES.indexOf(tIdx);
+          playerIndex = startPIdx !== -1 ? startPIdx : null;
+          isSafe = isSafeSquare(tIdx);
+          label = formatTrackDesc(tIdx);
+
+          if (state && state.players) {
+            for (let pIdx = 0; pIdx < 4; pIdx++) {
+              const p = state.players[pIdx];
+              if (!p || p.type === 'none') continue;
+              for (let t = 0; t < 4; t++) {
+                const step = p.tokens[t];
+                if (step >= 0 && step <= 50) {
+                  const abs = getAbsoluteTrackIndex(pIdx, step);
+                  if (abs === tIdx) {
+                    tokens.push({
+                      playerIndex: pIdx,
+                      tokenIndex: t,
+                      color: COLORS[pIdx],
+                      step: step,
+                      label: `${COLORS[pIdx]} Token ${t + 1}`
+                    });
+                  }
                 }
               }
             }
@@ -1356,7 +1448,7 @@
 
     const isOccupied = tokens.length > 0;
 
-    // Threats: Active opponent threats if this is a track square
+    // Threats: Active opponent threats if this is an occupied non-safe track square
     let threats = [];
     if (type === 'track' && trackIndex !== null && isOccupied && !isSafe && state) {
       threats = getThreatsForSquare(state, tokens[0].playerIndex, trackIndex);
@@ -1372,11 +1464,13 @@
       }
     }
 
-    const speechSummary = `Row ${r + 1}, Column ${c + 1}: ${label}. ${occupancyText}`;
+    const speechSummary = `${coord}, ${label}. ${occupancyText}`;
 
     return {
       row: r,
       col: c,
+      coord,
+      isValidSquare: true,
       type,
       label,
       trackIndex,
@@ -1397,6 +1491,10 @@
     HOME_STRETCH_COORDS,
     HOME_GOAL_COORDS,
     YARD_TOKEN_COORDS,
+    getCoordName,
+    isValidSquare,
+    getAllValidSquares,
+    findNextValidSquare,
     isSafeSquare,
     getAbsoluteTrackIndex,
     formatTrackDesc,
