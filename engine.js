@@ -156,7 +156,7 @@
   ];
 
   /**
-   * Returns alphanumeric coordinate name (e.g. 'A7', 'B7', 'B2', 'G8') for a (row, col) on the 15x15 board.
+   * Returns raw 15x15 alphanumeric grid coordinate (kept for geometry diagnostics).
    * Col 0..14 -> 'A'..'O', Row 0..14 -> 1..15.
    */
   function getCoordName(row, col) {
@@ -168,6 +168,39 @@
     return String.fromCharCode(65 + c) + (r + 1);
   }
 
+  /**
+   * Returns Ludo numerical board indicator for any playable square on the 15x15 board:
+   * - Track squares (52): '1'..'52'
+   * - Yard slots (16): '1'..'4'
+   * - Home stretches (20): '1'..'5'
+   * - Home goals / non-playable cells: ''
+   */
+  function getBoardIndicator(row, col) {
+    const r = Number(row);
+    const c = Number(col);
+    if (isNaN(r) || isNaN(c) || r < 0 || r > 14 || c < 0 || c > 14) {
+      return '';
+    }
+
+    const tIdx = TRACK_COORDS.findIndex(coord => coord.row === r && coord.col === c);
+    if (tIdx !== -1) {
+      return String(tIdx + 1);
+    }
+
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const nestIdx = YARD_TOKEN_COORDS[pIdx].findIndex(coord => coord.row === r && coord.col === c);
+      if (nestIdx !== -1) {
+        return String(nestIdx + 1);
+      }
+      const stretchIdx = HOME_STRETCH_COORDS[pIdx].findIndex(coord => coord.row === r && coord.col === c);
+      if (stretchIdx !== -1) {
+        return String(stretchIdx + 1);
+      }
+    }
+
+    return '';
+  }
+
   // Precompute the 92 real playable Ludo squares
   const ALL_VALID_SQUARES = [];
   const VALID_SQUARE_SET = new Set();
@@ -176,7 +209,7 @@
     const key = `${r},${c}`;
     if (!VALID_SQUARE_SET.has(key)) {
       VALID_SQUARE_SET.add(key);
-      ALL_VALID_SQUARES.push({ row: r, col: c, coord: getCoordName(r, c) });
+      ALL_VALID_SQUARES.push({ row: r, col: c, indicator: getBoardIndicator(r, c) });
     }
   }
 
@@ -209,10 +242,10 @@
   }
 
   /**
-   * Returns an array of all 92 real playable Ludo squares ({ row, col, coord }).
+   * Returns an array of all 92 real playable Ludo squares ({ row, col, indicator }).
    */
   function getAllValidSquares() {
-    return ALL_VALID_SQUARES.map(sq => ({ row: sq.row, col: sq.col, coord: sq.coord }));
+    return ALL_VALID_SQUARES.map(sq => ({ row: sq.row, col: sq.col, indicator: sq.indicator }));
   }
 
   /**
@@ -263,7 +296,7 @@
     if (candidates.length === 0) return null;
 
     // Prefer candidates with perpDist === 0 if primaryDist <= 5
-    // (e.g. moving across Yard slots B2 -> E2 or B5 -> B7)
+    // (e.g. moving across Yard slots 1 -> 2 or Yard 3 -> Track 1)
     const directLineCandidates = candidates.filter(cand => cand.perpDist === 0 && cand.primaryDist <= 5);
     if (directLineCandidates.length > 0) {
       directLineCandidates.sort((a, b) => a.primaryDist - b.primaryDist);
@@ -1155,12 +1188,11 @@
         }
       }
       const coords = YARD_TOKEN_COORDS[pIdx][0];
-      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `yard-${pIdx}`,
         type: 'yard',
-        label: `${coord}: ${COLORS[pIdx]} Yard`,
-        coord: coord,
+        label: `${COLORS[pIdx]} Yard`,
+        indicator: 'Yard',
         playerIndex: pIdx,
         tokens: tokensInYard,
         isOccupied: tokensInYard.length > 0,
@@ -1169,7 +1201,7 @@
       });
     }
 
-    // 2. Track Squares (0..51)
+    // 2. Track Squares (0..51 -> 1..52)
     for (let trackIdx = 0; trackIdx < 52; trackIdx++) {
       const tokensOnTrack = [];
       if (state && state.players) {
@@ -1195,13 +1227,12 @@
       }
 
       const coords = TRACK_COORDS[trackIdx];
-      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `track-${trackIdx}`,
         type: 'track',
         trackIndex: trackIdx,
-        label: `${coord}: ${formatTrackDesc(trackIdx)}`,
-        coord: coord,
+        label: formatTrackDesc(trackIdx),
+        indicator: String(trackIdx + 1),
         tokens: tokensOnTrack,
         isOccupied: tokensOnTrack.length > 0,
         isSafe: isSafeSquare(trackIdx),
@@ -1229,14 +1260,13 @@
         }
 
         const coords = HOME_STRETCH_COORDS[pIdx][s - 1];
-        const coord = getCoordName(coords.row, coords.col);
         items.push({
           id: `home-stretch-${pIdx}-${s}`,
           type: 'homeStretch',
           playerIndex: pIdx,
           stepIndex: s,
-          label: `${coord}: ${COLORS[pIdx]} Home Stretch ${s}`,
-          coord: coord,
+          label: `${COLORS[pIdx]} Home Stretch ${s}`,
+          indicator: String(s),
           tokens: tokensInStretch,
           isOccupied: tokensInStretch.length > 0,
           isSafe: true,
@@ -1263,13 +1293,12 @@
       }
 
       const coords = HOME_GOAL_COORDS[pIdx];
-      const coord = getCoordName(coords.row, coords.col);
       items.push({
         id: `home-goal-${pIdx}`,
         type: 'homeGoal',
         playerIndex: pIdx,
-        label: `${coord}: ${COLORS[pIdx]} Home Goal`,
-        coord: coord,
+        label: `${COLORS[pIdx]} Home Goal`,
+        indicator: 'Goal',
         tokens: tokensInHome,
         isOccupied: tokensInHome.length > 0,
         isSafe: true,
@@ -1288,18 +1317,18 @@
    * @param {number} row 0..14
    * @param {number} col 0..14
    * @returns {object} Cell metadata:
-   *   { row, col, coord, isValidSquare, type, label, trackIndex, playerIndex, isSafe, isOccupied, tokens, threats, speechSummary }
+   *   { row, col, indicator, isValidSquare, type, label, trackIndex, playerIndex, isSafe, isOccupied, tokens, threats, speechSummary }
    */
   function getCellInfo(state, row, col) {
     const r = Number(row);
     const c = Number(col);
-    const coord = getCoordName(r, c);
+    const indicator = getBoardIndicator(r, c);
 
     if (!isValidSquare(r, c)) {
       return {
         row: r,
         col: c,
-        coord,
+        indicator: '',
         isValidSquare: false,
         type: null,
         label: '',
@@ -1464,12 +1493,12 @@
       }
     }
 
-    const speechSummary = `${coord}, ${label}. ${occupancyText}`;
+    const speechSummary = `${label}. ${occupancyText}`;
 
     return {
       row: r,
       col: c,
-      coord,
+      indicator,
       isValidSquare: true,
       type,
       label,
@@ -1492,6 +1521,7 @@
     HOME_GOAL_COORDS,
     YARD_TOKEN_COORDS,
     getCoordName,
+    getBoardIndicator,
     isValidSquare,
     getAllValidSquares,
     findNextValidSquare,

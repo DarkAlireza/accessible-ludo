@@ -46,13 +46,17 @@
   }
 
   /**
-   * Helper to get standard alphanumeric coordinate name (e.g. 'A7', 'B7')
+   * Formats concise visual text for the Board Cursor status bar.
    */
-  function getSquareCoord(row, col) {
-    if (LudoEngine && typeof LudoEngine.getCoordName === 'function') {
-      return LudoEngine.getCoordName(row, col);
+  function formatCursorBarText(cellInfo) {
+    if (!cellInfo) return '';
+    let desc = cellInfo.label || `Square ${config.cursorRow + 1}-${config.cursorCol + 1}`;
+    if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
+      desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
+    } else {
+      desc += ' — Empty';
     }
-    return String.fromCharCode(65 + col) + (row + 1);
+    return desc;
   }
 
   /**
@@ -283,14 +287,7 @@
 
     const cursorTextEl = document.getElementById('board-cursor-text');
     if (cursorTextEl) {
-      const coordPrefix = cellInfo.coord ? `${cellInfo.coord} — ` : '';
-      let desc = `${coordPrefix}${cellInfo.label}`;
-      if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
-        desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
-      } else {
-        desc += ' — Empty';
-      }
-      cursorTextEl.textContent = desc;
+      cursorTextEl.textContent = formatCursorBarText(cellInfo);
     }
 
     if (announceMove) {
@@ -380,14 +377,7 @@
     if (!cursorTextEl || !state || !LudoEngine || typeof LudoEngine.getCellInfo !== 'function') return;
 
     const cellInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
-    const coordPrefix = cellInfo.coord ? `${cellInfo.coord} — ` : `Row ${config.cursorRow + 1}, Col ${config.cursorCol + 1} — `;
-    let desc = `${coordPrefix}${cellInfo.label}`;
-    if (cellInfo.isOccupied && cellInfo.tokens && cellInfo.tokens.length > 0) {
-      desc += ` — Occupied by: ${cellInfo.tokens.map(t => t.label).join(', ')}`;
-    } else {
-      desc += ' — Empty';
-    }
-    cursorTextEl.textContent = desc;
+    cursorTextEl.textContent = formatCursorBarText(cellInfo);
   }
 
   /**
@@ -1306,8 +1296,8 @@
           }
           if (LudoEngine && typeof LudoEngine.getCellInfo === 'function') {
             const curInfo = LudoEngine.getCellInfo(state, config.cursorRow, config.cursorCol);
-            const coordName = (curInfo && curInfo.coord) ? curInfo.coord : getSquareCoord(config.cursorRow, config.cursorCol);
-            announce(`${coordName}. Board edge.`, 'assertive', false);
+            const squareLabel = (curInfo && curInfo.label) ? curInfo.label : 'Board square';
+            announce(`${squareLabel}. Board edge.`, 'assertive', false);
           }
         } else {
           updateBoardCursor(next.row, next.col, true);
@@ -1922,8 +1912,7 @@
         slotCell.setAttribute('role', 'button');
         slotCell.setAttribute('tabindex', '-1');
 
-        const coordName = getSquareCoord(coord.row, coord.col);
-        slotCell.innerHTML = `<span class="cell-coord" aria-hidden="true">${coordName}</span>`;
+        slotCell.innerHTML = `<span class="cell-coord yard-slot-num" aria-hidden="true">${slotIdx + 1}</span>`;
 
         bindBoardCellClick(slotCell, coord.row, coord.col);
 
@@ -1975,9 +1964,7 @@
       goalCell.setAttribute('role', 'button');
       goalCell.setAttribute('tabindex', '-1');
 
-      const coordName = getSquareCoord(goalCoord.row, goalCoord.col);
       goalCell.innerHTML = `
-        <span class="cell-coord" aria-hidden="true">${coordName}</span>
         <span class="goal-icon" aria-hidden="true">🏆</span>
       `;
 
@@ -2005,7 +1992,6 @@
       cell.setAttribute('role', 'button');
       cell.setAttribute('tabindex', '-1');
 
-      const coordName = getSquareCoord(coord.row, coord.col);
       const isSafe = safeIndices.indexOf(tIdx) !== -1;
       const startPIdx = startIndices.indexOf(tIdx);
 
@@ -2034,7 +2020,7 @@
       }
 
       cell.innerHTML = `
-        <span class="cell-coord" aria-hidden="true">${coordName}</span>
+        <span class="cell-coord track-num" aria-hidden="true">${tIdx + 1}</span>
         ${markerHtml}
       `;
 
@@ -2061,9 +2047,7 @@
         cell.setAttribute('role', 'button');
         cell.setAttribute('tabindex', '-1');
 
-        const coordName = getSquareCoord(coord.row, coord.col);
         cell.innerHTML = `
-          <span class="cell-coord" aria-hidden="true">${coordName}</span>
           <span class="stretch-num-label" aria-hidden="true">${sIdx + 1}</span>
         `;
 

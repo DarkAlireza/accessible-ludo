@@ -862,9 +862,6 @@ kbd {
 }
 
 .board-frame {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  grid-template-rows: 24px 1fr;
   width: 100%;
   background-color: var(--surface-2);
   border: 3px solid var(--border-strong);
@@ -873,42 +870,7 @@ kbd {
   box-shadow: var(--shadow-card);
 }
 
-.board-coord-corner {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.board-coord-cols {
-  grid-column: 2;
-  grid-row: 1;
-  display: grid;
-  grid-template-columns: repeat(15, 1fr);
-  align-items: center;
-  justify-items: center;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
-  color: var(--text-muted);
-  user-select: none;
-}
-
-.board-coord-rows {
-  grid-column: 1;
-  grid-row: 2;
-  display: grid;
-  grid-template-rows: repeat(15, 1fr);
-  align-items: center;
-  justify-items: center;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
-  color: var(--text-muted);
-  user-select: none;
-}
-
 .ludo-grid {
-  grid-column: 2;
-  grid-row: 2;
   display: grid;
   grid-template-columns: repeat(15, 1fr);
   grid-template-rows: repeat(15, 1fr);
@@ -1077,19 +1039,26 @@ kbd {
   }
 }
 
-/* Subtle corner coordinate label */
+/* Subtle numerical board indicator (1-52 track, 1-4 yard) */
 .cell-coord {
   position: absolute;
-  top: 1px;
-  left: 2px;
+  top: 2px;
+  left: 3px;
   font-family: var(--font-mono);
-  font-size: 0.52rem;
+  font-size: 0.54rem;
   font-weight: 800;
   color: var(--text-muted);
-  opacity: 0.7;
+  opacity: 0.85;
   pointer-events: none;
   line-height: 1;
   z-index: 2;
+}
+
+/* Center numbers cleanly on plain track squares without star/arrow icons */
+.cell.track-cell:not(.safe-square):not(.start-red):not(.start-green):not(.start-yellow):not(.start-blue):not(.stretch-entry-cell) .cell-coord {
+  position: static;
+  font-size: 0.7rem;
+  opacity: 0.8;
 }
 
 /* Yard Token Slot Circles */
@@ -1222,14 +1191,6 @@ kbd {
   font-size: 0.85rem;
   line-height: 1;
   z-index: 1;
-}
-
-.cell.goal-cell .cell-coord {
-  top: 1px;
-  left: 2px;
-  color: #000000;
-  font-weight: 900;
-  opacity: 0.85;
 }
 
 /* Tokens Rendering with distinct shapes and initials */

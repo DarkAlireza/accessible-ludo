@@ -398,13 +398,22 @@ test('getBoardExplorerItems generates full accessible board inventory', () => {
   assert.strictEqual(track0.isOccupied, true);
   assert.strictEqual(track0.tokens.length, 1);
   assert.strictEqual(track0.tokens[0].color, 'Red');
-  assert.strictEqual(track0.coord, 'B7');
-  assert.strictEqual(track0.label, 'B7: Track 1 (Red Start, Safe)');
+  assert.strictEqual(track0.indicator, '1');
+  assert.strictEqual(track0.label, 'Track 1 (Red Start, Safe)');
 
-  // Verify all items have valid coord and label prefixed with coord
+  // Verify all items have clean numerical/descriptive labels without A1-O15 grid prefixes
   items.forEach(item => {
-    assert(item.coord && item.coord.length >= 2, `Item ${item.id} has invalid coord`);
-    assert(item.label.startsWith(item.coord + ': '), `Item ${item.id} label not prefixed with coord`);
+    assert(item.indicator && item.indicator.length >= 1, `Item ${item.id} has valid indicator`);
+    assert(item.label && item.label.length > 0, `Item ${item.id} has valid label`);
+    assert(!/^[A-O]\d+:/.test(item.label), `Item ${item.id} label does not use A1-O15 prefix`);
+  });
+
+  // Verify track items are numbered sequentially 1 to 52
+  const trackItems = items.filter(i => i.type === 'track');
+  assert.strictEqual(trackItems.length, 52);
+  trackItems.forEach((item, idx) => {
+    assert.strictEqual(item.indicator, String(idx + 1));
+    assert(item.label.includes(`Track ${idx + 1}`));
   });
 });
 
@@ -460,11 +469,11 @@ test('Ludo.getCellInfo is exported as a function', () => {
 
 test('getCellInfo handles empty track squares correctly', () => {
   const state = Ludo.createGame();
-  // Track 3 is at row 6, col 4 (E7)
+  // Track 3 (Track 4) is at row 6, col 4
   const info = Ludo.getCellInfo(state, 6, 4);
   assert.strictEqual(info.row, 6);
   assert.strictEqual(info.col, 4);
-  assert.strictEqual(info.coord, 'E7');
+  assert.strictEqual(info.indicator, '4');
   assert.strictEqual(info.isValidSquare, true);
   assert.strictEqual(info.type, 'track');
   assert.strictEqual(info.trackIndex, 3);
@@ -474,15 +483,15 @@ test('getCellInfo handles empty track squares correctly', () => {
   assert.deepStrictEqual(info.tokens, []);
   assert.deepStrictEqual(info.threats, []);
   assert.strictEqual(info.label, 'Track 4');
-  assert.strictEqual(info.speechSummary, 'E7, Track 4. Empty.');
+  assert.strictEqual(info.speechSummary, 'Track 4. Empty.');
 });
 
 test('getCellInfo handles start track squares (safe) when occupied', () => {
   const state = Ludo.createGame();
-  // Red Start is Track 0 at row 6, col 1 (B7)
+  // Red Start is Track 0 (Track 1) at row 6, col 1
   state.players[0].tokens[0] = 0; // Red Token 1 on Start square
   const info = Ludo.getCellInfo(state, 6, 1);
-  assert.strictEqual(info.coord, 'B7');
+  assert.strictEqual(info.indicator, '1');
   assert.strictEqual(info.isValidSquare, true);
   assert.strictEqual(info.type, 'track');
   assert.strictEqual(info.trackIndex, 0);
@@ -496,17 +505,17 @@ test('getCellInfo handles start track squares (safe) when occupied', () => {
   assert.strictEqual(info.tokens[0].label, 'Red Token 1');
   assert.deepStrictEqual(info.threats, []); // Safe square has no threats
   assert.strictEqual(info.label, 'Track 1 (Red Start, Safe)');
-  assert.strictEqual(info.speechSummary, 'B7, Track 1 (Red Start, Safe). Occupied by Red Token 1.');
+  assert.strictEqual(info.speechSummary, 'Track 1 (Red Start, Safe). Occupied by Red Token 1.');
 });
 
 test('getCellInfo handles safe star squares and token coexistence', () => {
   const state = Ludo.createGame();
-  // Safe Star at Track 8: row 2, col 6 (G3)
+  // Safe Star at Track 8 (Track 9): row 2, col 6
   // Red step 8 is track 8; Green step (8 - 13 + 52) % 52 = 47 is track 8
   state.players[0].tokens[0] = 8;
   state.players[1].tokens[0] = 47;
   const info = Ludo.getCellInfo(state, 2, 6);
-  assert.strictEqual(info.coord, 'G3');
+  assert.strictEqual(info.indicator, '9');
   assert.strictEqual(info.isValidSquare, true);
   assert.strictEqual(info.type, 'track');
   assert.strictEqual(info.trackIndex, 8);
@@ -516,12 +525,12 @@ test('getCellInfo handles safe star squares and token coexistence', () => {
   assert.strictEqual(info.tokens.length, 2);
   assert.deepStrictEqual(info.threats, []); // Safe square
   assert.strictEqual(info.label, 'Track 9 (Safe Star)');
-  assert.strictEqual(info.speechSummary, 'G3, Track 9 (Safe Star). Occupied by Red Token 1, Green Token 1.');
+  assert.strictEqual(info.speechSummary, 'Track 9 (Safe Star). Occupied by Red Token 1, Green Token 1.');
 });
 
 test('getCellInfo reports active opponent threats on occupied unsafe track squares', () => {
   const state = Ludo.createGame();
-  // Track 10 is at row 0, col 6 (G1, Unsafe)
+  // Track 10 (Track 11) is at row 0, col 6 (Unsafe)
   // Red Token 1 at track 10
   state.players[0].tokens[0] = 10;
   // Green Token 1 at track 6 (distance 4 from Track 10)
@@ -529,7 +538,7 @@ test('getCellInfo reports active opponent threats on occupied unsafe track squar
   state.players[1].tokens[0] = 45;
 
   const info = Ludo.getCellInfo(state, 0, 6);
-  assert.strictEqual(info.coord, 'G1');
+  assert.strictEqual(info.indicator, '11');
   assert.strictEqual(info.isValidSquare, true);
   assert.strictEqual(info.type, 'track');
   assert.strictEqual(info.trackIndex, 10);
@@ -540,16 +549,16 @@ test('getCellInfo reports active opponent threats on occupied unsafe track squar
   assert.strictEqual(info.threats[0], 'Green Token 1 (4 steps away)');
   assert.strictEqual(
     info.speechSummary,
-    'G1, Track 11. Occupied by Red Token 1. Warning: Threatened by Green Token 1 (4 steps away).'
+    'Track 11. Occupied by Red Token 1. Warning: Threatened by Green Token 1 (4 steps away).'
   );
 });
 
 test('getCellInfo handles occupied and empty yard nests', () => {
   const state = Ludo.createGame();
   // Initial state: all tokens in yard
-  // Red Yard 1 at row 1, col 1 (B2)
+  // Red Yard 1 at row 1, col 1
   const redNest1Occupied = Ludo.getCellInfo(state, 1, 1);
-  assert.strictEqual(redNest1Occupied.coord, 'B2');
+  assert.strictEqual(redNest1Occupied.indicator, '1');
   assert.strictEqual(redNest1Occupied.isValidSquare, true);
   assert.strictEqual(redNest1Occupied.type, 'yardNest');
   assert.strictEqual(redNest1Occupied.playerIndex, 0);
@@ -559,21 +568,21 @@ test('getCellInfo handles occupied and empty yard nests', () => {
   assert.strictEqual(redNest1Occupied.tokens.length, 1);
   assert.strictEqual(redNest1Occupied.tokens[0].label, 'Red Token 1');
   assert.strictEqual(redNest1Occupied.label, 'Red Yard 1');
-  assert.strictEqual(redNest1Occupied.speechSummary, 'B2, Red Yard 1. Occupied by Red Token 1.');
+  assert.strictEqual(redNest1Occupied.speechSummary, 'Red Yard 1. Occupied by Red Token 1.');
 
   // Red Token 1 exits yard to track 0
   state.players[0].tokens[0] = 0;
   const redNest1Empty = Ludo.getCellInfo(state, 1, 1);
-  assert.strictEqual(redNest1Empty.coord, 'B2');
+  assert.strictEqual(redNest1Empty.indicator, '1');
   assert.strictEqual(redNest1Empty.isValidSquare, true);
   assert.strictEqual(redNest1Empty.type, 'yardNest');
   assert.strictEqual(redNest1Empty.isOccupied, false);
   assert.strictEqual(redNest1Empty.tokens.length, 0);
-  assert.strictEqual(redNest1Empty.speechSummary, 'B2, Red Yard 1. Empty.');
+  assert.strictEqual(redNest1Empty.speechSummary, 'Red Yard 1. Empty.');
 
-  // Green Yard 2 at row 1, col 13 (N2)
+  // Green Yard 2 at row 1, col 13
   const greenNest2 = Ludo.getCellInfo(state, 1, 13);
-  assert.strictEqual(greenNest2.coord, 'N2');
+  assert.strictEqual(greenNest2.indicator, '2');
   assert.strictEqual(greenNest2.isValidSquare, true);
   assert.strictEqual(greenNest2.type, 'yardNest');
   assert.strictEqual(greenNest2.playerIndex, 1);
@@ -584,36 +593,36 @@ test('getCellInfo handles occupied and empty yard nests', () => {
 
 test('getCellInfo returns isValidSquare: false and type: null for non-playable cells (no fake squares)', () => {
   const state = Ludo.createGame();
-  // Former Yard Border at row 0, col 0 (A1)
+  // Former Yard Border at row 0, col 0
   const border = Ludo.getCellInfo(state, 0, 0);
   assert.strictEqual(border.isValidSquare, false);
   assert.strictEqual(border.type, null);
   assert.strictEqual(border.label, '');
   assert.strictEqual(border.speechSummary, '');
-  assert.strictEqual(border.coord, 'A1');
+  assert.strictEqual(border.indicator, '');
 
-  // Former Yard Area at row 2, col 2 (C3)
+  // Former Yard Area at row 2, col 2
   const innerArea = Ludo.getCellInfo(state, 2, 2);
   assert.strictEqual(innerArea.isValidSquare, false);
   assert.strictEqual(innerArea.type, null);
   assert.strictEqual(innerArea.label, '');
   assert.strictEqual(innerArea.speechSummary, '');
-  assert.strictEqual(innerArea.coord, 'C3');
+  assert.strictEqual(innerArea.indicator, '');
 
-  // Former Board Center at row 7, col 7 (H8)
+  // Former Board Center at row 7, col 7
   const center = Ludo.getCellInfo(state, 7, 7);
   assert.strictEqual(center.isValidSquare, false);
   assert.strictEqual(center.type, null);
   assert.strictEqual(center.label, '');
   assert.strictEqual(center.speechSummary, '');
-  assert.strictEqual(center.coord, 'H8');
+  assert.strictEqual(center.indicator, '');
 });
 
 test('getCellInfo handles home stretches', () => {
   const state = Ludo.createGame();
-  // Red Home Stretch 1 at row 7, col 1 (B8)
+  // Red Home Stretch 1 at row 7, col 1
   const redStretch1 = Ludo.getCellInfo(state, 7, 1);
-  assert.strictEqual(redStretch1.coord, 'B8');
+  assert.strictEqual(redStretch1.indicator, '1');
   assert.strictEqual(redStretch1.isValidSquare, true);
   assert.strictEqual(redStretch1.type, 'homeStretch');
   assert.strictEqual(redStretch1.playerIndex, 0);
@@ -621,12 +630,12 @@ test('getCellInfo handles home stretches', () => {
   assert.strictEqual(redStretch1.isSafe, true);
   assert.strictEqual(redStretch1.isOccupied, false);
   assert.strictEqual(redStretch1.label, 'Red Home Stretch 1');
-  assert.strictEqual(redStretch1.speechSummary, 'B8, Red Home Stretch 1. Empty.');
+  assert.strictEqual(redStretch1.speechSummary, 'Red Home Stretch 1. Empty.');
 
-  // Green Home Stretch 3 at row 3, col 7 (H4) occupied by Green Token 2 (step 53)
+  // Green Home Stretch 3 at row 3, col 7 occupied by Green Token 2 (step 53)
   state.players[1].tokens[1] = 53;
   const greenStretch3 = Ludo.getCellInfo(state, 3, 7);
-  assert.strictEqual(greenStretch3.coord, 'H4');
+  assert.strictEqual(greenStretch3.indicator, '3');
   assert.strictEqual(greenStretch3.isValidSquare, true);
   assert.strictEqual(greenStretch3.type, 'homeStretch');
   assert.strictEqual(greenStretch3.playerIndex, 1);
@@ -635,14 +644,14 @@ test('getCellInfo handles home stretches', () => {
   assert.strictEqual(greenStretch3.tokens[0].label, 'Green Token 2');
   assert.strictEqual(greenStretch3.tokens[0].step, 53);
   assert.strictEqual(greenStretch3.label, 'Green Home Stretch 3');
-  assert.strictEqual(greenStretch3.speechSummary, 'H4, Green Home Stretch 3. Occupied by Green Token 2.');
+  assert.strictEqual(greenStretch3.speechSummary, 'Green Home Stretch 3. Occupied by Green Token 2.');
 });
 
 test('getCellInfo handles home goals', () => {
   const state = Ludo.createGame();
-  // Red Home Goal at row 7, col 6 (G8)
+  // Red Home Goal at row 7, col 6
   const emptyGoal = Ludo.getCellInfo(state, 7, 6);
-  assert.strictEqual(emptyGoal.coord, 'G8');
+  assert.strictEqual(emptyGoal.indicator, '');
   assert.strictEqual(emptyGoal.isValidSquare, true);
   assert.strictEqual(emptyGoal.type, 'homeGoal');
   assert.strictEqual(emptyGoal.playerIndex, 0);
@@ -650,7 +659,7 @@ test('getCellInfo handles home goals', () => {
   assert.strictEqual(emptyGoal.isSafe, true);
   assert.strictEqual(emptyGoal.isOccupied, false);
   assert.strictEqual(emptyGoal.label, 'Red Home Goal');
-  assert.strictEqual(emptyGoal.speechSummary, 'G8, Red Home Goal. Empty.');
+  assert.strictEqual(emptyGoal.speechSummary, 'Red Home Goal. Empty.');
 
   // Red Token 1 reaches Home Goal (step 56)
   state.players[0].tokens[0] = 56;
@@ -658,7 +667,7 @@ test('getCellInfo handles home goals', () => {
   assert.strictEqual(occupiedGoal.isOccupied, true);
   assert.strictEqual(occupiedGoal.tokens.length, 1);
   assert.strictEqual(occupiedGoal.tokens[0].label, 'Red Token 1');
-  assert.strictEqual(occupiedGoal.speechSummary, 'G8, Red Home Goal. Occupied by Red Token 1.');
+  assert.strictEqual(occupiedGoal.speechSummary, 'Red Home Goal. Occupied by Red Token 1.');
 
   // Check other colors' Home Goals
   assert.strictEqual(Ludo.getCellInfo(state, 6, 7).label, 'Green Home Goal');
@@ -696,16 +705,19 @@ test('getCellInfo and isValidSquare strictly partition the 225 cells into 92 val
       const info = Ludo.getCellInfo(state, r, c);
       assert.strictEqual(info.row, r);
       assert.strictEqual(info.col, c);
-      assert.strictEqual(info.coord, Ludo.getCoordName(r, c));
+      assert.strictEqual(info.indicator, Ludo.getBoardIndicator(r, c));
       assert.strictEqual(info.isValidSquare, isVal);
 
       if (isVal) {
         validCount++;
         assert(info.type === 'track' || info.type === 'homeStretch' || info.type === 'homeGoal' || info.type === 'yardNest');
-        assert(info.speechSummary.startsWith(info.coord));
+        assert(info.speechSummary.startsWith(info.label));
 
-        if (info.type === 'track') trackCount++;
-        else if (info.type === 'homeStretch') homeStretchCount++;
+        if (info.type === 'track') {
+          trackCount++;
+          assert.strictEqual(Number(info.indicator), info.trackIndex + 1);
+          assert(Number(info.indicator) >= 1 && Number(info.indicator) <= 52);
+        } else if (info.type === 'homeStretch') homeStretchCount++;
         else if (info.type === 'homeGoal') homeGoalCount++;
         else if (info.type === 'yardNest') yardNestCount++;
       } else {
@@ -726,15 +738,17 @@ test('getCellInfo and isValidSquare strictly partition the 225 cells into 92 val
   assert.strictEqual(validCount + nonSquareCount, 225, 'Total 225 cells on 15x15 grid');
 });
 
-test('getCoordName converts (row, col) to alphanumeric coordinate name', () => {
-  assert.strictEqual(Ludo.getCoordName(6, 0), 'A7');
-  assert.strictEqual(Ludo.getCoordName(6, 1), 'B7');
-  assert.strictEqual(Ludo.getCoordName(1, 1), 'B2');
-  assert.strictEqual(Ludo.getCoordName(7, 6), 'G8');
-  assert.strictEqual(Ludo.getCoordName(0, 0), 'A1');
-  assert.strictEqual(Ludo.getCoordName(14, 14), 'O15');
-  assert.strictEqual(Ludo.getCoordName(-1, 0), '');
-  assert.strictEqual(Ludo.getCoordName(0, 15), '');
+test('getBoardIndicator returns 1-52 for track, 1-4 for yards, 1-5 for stretches', () => {
+  assert.strictEqual(Ludo.getBoardIndicator(6, 1), '1');   // Track 1 (Red Start)
+  assert.strictEqual(Ludo.getBoardIndicator(6, 0), '52');  // Track 52
+  assert.strictEqual(Ludo.getBoardIndicator(1, 8), '14');  // Track 14 (Green Start)
+  assert.strictEqual(Ludo.getBoardIndicator(1, 1), '1');   // Red Yard 1
+  assert.strictEqual(Ludo.getBoardIndicator(4, 4), '4');   // Red Yard 4
+  assert.strictEqual(Ludo.getBoardIndicator(7, 1), '1');   // Red Home Stretch 1
+  assert.strictEqual(Ludo.getBoardIndicator(7, 5), '5');   // Red Home Stretch 5
+  assert.strictEqual(Ludo.getBoardIndicator(7, 6), '');    // Red Home Goal
+  assert.strictEqual(Ludo.getBoardIndicator(0, 0), '');    // Non-playable corner
+  assert.strictEqual(Ludo.getBoardIndicator(-1, 0), '');
 });
 
 test('getAllValidSquares returns all 92 real playable Ludo squares', () => {
@@ -743,44 +757,44 @@ test('getAllValidSquares returns all 92 real playable Ludo squares', () => {
   validList.forEach(sq => {
     assert(sq.row >= 0 && sq.row <= 14);
     assert(sq.col >= 0 && sq.col <= 14);
-    assert.strictEqual(sq.coord, Ludo.getCoordName(sq.row, sq.col));
+    assert.strictEqual(sq.indicator, Ludo.getBoardIndicator(sq.row, sq.col));
     assert.strictEqual(Ludo.isValidSquare(sq.row, sq.col), true);
   });
 });
 
 test('findNextValidSquare navigates accurately across 92 valid squares via arrow keys', () => {
   // 1. Direct immediate neighbor moves
-  const moveRightFromB7 = Ludo.findNextValidSquare(6, 1, 0, 1);
-  assert.deepStrictEqual(moveRightFromB7, { row: 6, col: 2 }); // C7 (Track 2)
+  const moveRightFromTrack1 = Ludo.findNextValidSquare(6, 1, 0, 1);
+  assert.deepStrictEqual(moveRightFromTrack1, { row: 6, col: 2 }); // Track 2
 
-  const moveLeftFromB7 = Ludo.findNextValidSquare(6, 1, 0, -1);
-  assert.deepStrictEqual(moveLeftFromB7, { row: 6, col: 0 }); // A7 (Track 52)
+  const moveLeftFromTrack1 = Ludo.findNextValidSquare(6, 1, 0, -1);
+  assert.deepStrictEqual(moveLeftFromTrack1, { row: 6, col: 0 }); // Track 52
 
-  const moveDownFromB7 = Ludo.findNextValidSquare(6, 1, 1, 0);
-  assert.deepStrictEqual(moveDownFromB7, { row: 7, col: 1 }); // B8 (Red Home Stretch 1)
+  const moveDownFromTrack1 = Ludo.findNextValidSquare(6, 1, 1, 0);
+  assert.deepStrictEqual(moveDownFromTrack1, { row: 7, col: 1 }); // Red Home Stretch 1
 
   // 2. Yard slot jumps
-  const moveRightFromB2 = Ludo.findNextValidSquare(1, 1, 0, 1);
-  assert.deepStrictEqual(moveRightFromB2, { row: 1, col: 4 }); // E2 (Red Yard 2)
+  const moveRightFromYard1 = Ludo.findNextValidSquare(1, 1, 0, 1);
+  assert.deepStrictEqual(moveRightFromYard1, { row: 1, col: 4 }); // Red Yard 2
 
-  const moveDownFromB2 = Ludo.findNextValidSquare(1, 1, 1, 0);
-  assert.deepStrictEqual(moveDownFromB2, { row: 4, col: 1 }); // B5 (Red Yard 3)
+  const moveDownFromYard1 = Ludo.findNextValidSquare(1, 1, 1, 0);
+  assert.deepStrictEqual(moveDownFromYard1, { row: 4, col: 1 }); // Red Yard 3
 
-  const moveDownFromB5 = Ludo.findNextValidSquare(4, 1, 1, 0);
-  assert.deepStrictEqual(moveDownFromB5, { row: 6, col: 1 }); // B7 (Track 1 / Red Start)
+  const moveDownFromYard3 = Ludo.findNextValidSquare(4, 1, 1, 0);
+  assert.deepStrictEqual(moveDownFromYard3, { row: 6, col: 1 }); // Track 1 / Red Start
 
-  const moveUpFromB7 = Ludo.findNextValidSquare(6, 1, -1, 0);
-  assert.deepStrictEqual(moveUpFromB7, { row: 4, col: 1 }); // B5 (Red Yard 3)
+  const moveUpFromTrack1 = Ludo.findNextValidSquare(6, 1, -1, 0);
+  assert.deepStrictEqual(moveUpFromTrack1, { row: 4, col: 1 }); // Red Yard 3
 
-  const moveUpFromB5 = Ludo.findNextValidSquare(4, 1, -1, 0);
-  assert.deepStrictEqual(moveUpFromB5, { row: 1, col: 1 }); // B2 (Red Yard 1)
+  const moveUpFromYard3 = Ludo.findNextValidSquare(4, 1, -1, 0);
+  assert.deepStrictEqual(moveUpFromYard3, { row: 1, col: 1 }); // Red Yard 1
 
   // 3. Board edges
-  const moveLeftFromA7 = Ludo.findNextValidSquare(6, 0, 0, -1);
-  assert.strictEqual(moveLeftFromA7, null);
+  const moveLeftFromTrack52 = Ludo.findNextValidSquare(6, 0, 0, -1);
+  assert.strictEqual(moveLeftFromTrack52, null);
 
-  const moveUpFromG1 = Ludo.findNextValidSquare(0, 6, -1, 0);
-  assert.strictEqual(moveUpFromG1, null);
+  const moveUpFromTrack11 = Ludo.findNextValidSquare(0, 6, -1, 0);
+  assert.strictEqual(moveUpFromTrack11, null);
 });
 
 // 16. Audio & Multiplayer Integration Tests
